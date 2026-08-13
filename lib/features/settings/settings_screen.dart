@@ -1,10 +1,18 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
-import '../../../core/constants/app_constants.dart';
-import '../../../core/theme/theme_controller.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../core/constants/app_constants.dart';
+import '../../core/router/app_routes.dart';
+import '../../core/theme/theme_controller.dart';
+import '../profile/models/user_profile.dart';
+import '../profile/profile_controller.dart';
+import '../profile/profile_scope.dart';
 
 /// App settings. Currently exposes the theme preference (system / light /
-/// dark), which is fully functional through [ThemeController].
+/// dark), which is fully functional through [ThemeController], plus an admin
+/// section for managing AI provider keys (visible only to admins).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, required this.themeController});
 
@@ -14,10 +22,12 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final UserProfile? profile = ProfileScope.maybeOf(context)?.profile;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: SafeArea(
+    return _OwnerAdminBootstrap(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: <Widget>[
@@ -84,7 +94,25 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (profile?.isAdmin ?? false) ...<Widget>[
+              const SizedBox(height: 24),
+              _SectionLabel(label: 'Admin', scheme: scheme, theme: theme),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    Icons.admin_panel_settings_outlined,
+                    color: scheme.primary,
+                  ),
+                  title: const Text('Admin dashboard'),
+                  subtitle: const Text('Manage AI provider keys'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push(AppRoutes.adminSettings),
+                ),
+              ),
+            ],
           ],
+        ),
         ),
       ),
     );
@@ -93,6 +121,36 @@ class SettingsScreen extends StatelessWidget {
   void _setMode(ThemeMode? mode) {
     if (mode != null) themeController.setMode(mode);
   }
+}
+
+/// Quietly claims owner admin for the very first user to open Settings (when
+/// no admin exists yet), so the Admin dashboard appears without any SQL step.
+class _OwnerAdminBootstrap extends StatefulWidget {
+  const _OwnerAdminBootstrap({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_OwnerAdminBootstrap> createState() => _OwnerAdminBootstrapState();
+}
+
+class _OwnerAdminBootstrapState extends State<_OwnerAdminBootstrap> {
+  bool _attempted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_attempted) return;
+    final ProfileController? profile = ProfileScope.maybeOf(context);
+    final UserProfile? current = profile?.profile;
+    if (profile == null || current == null) return;
+    if (current.isAdmin) return;
+    _attempted = true;
+    unawaited(profile.ensureOwnerAdmin());
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _SectionLabel extends StatelessWidget {

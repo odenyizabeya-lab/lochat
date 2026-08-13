@@ -12,6 +12,7 @@ import 'package:lotext/features/ai/models/ai_conversation.dart';
 import 'package:lotext/features/ai/models/ai_message.dart';
 import 'package:lotext/features/ai/models/ai_provider.dart';
 import 'package:lotext/features/ai/models/ai_task.dart';
+import 'package:lotext/features/admin/data/app_config_repository.dart';
 import 'package:lotext/features/calls/models/call.dart';
 import 'package:lotext/features/calls/rtc/call_rtc_controller.dart';
 import 'package:lotext/features/calls/signaling/call_signaling_service.dart';
@@ -187,6 +188,7 @@ class FakeProfileRepository implements ProfileRepository {
       lotextId: existing?.lotextId,
       photoURL: existing?.photoURL,
       isOnline: existing?.isOnline ?? true,
+      isAdmin: existing?.isAdmin ?? false,
       lastSeen: existing?.lastSeen,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),
@@ -267,6 +269,7 @@ class FakeProfileRepository implements ProfileRepository {
       lotextId: id,
       photoURL: existing?.photoURL,
       isOnline: existing?.isOnline ?? true,
+      isAdmin: existing?.isAdmin ?? false,
       lastSeen: existing?.lastSeen,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),
@@ -274,6 +277,17 @@ class FakeProfileRepository implements ProfileRepository {
     profiles[uid] = updated;
     _controllerFor(uid).add(updated);
     return id;
+  }
+
+  @override
+  Future<bool> claimOwnerAdmin({required String uid}) async {
+    if (profiles.values.any((UserProfile p) => p.isAdmin)) return false;
+    final UserProfile? existing = profiles[uid];
+    if (existing == null) return false;
+    final UserProfile updated = existing.copyWith(isAdmin: true);
+    profiles[uid] = updated;
+    _controllerFor(uid).add(updated);
+    return true;
   }
 
   @override
@@ -326,6 +340,52 @@ class FakeProfileRepository implements ProfileRepository {
         controller.onCancel = () => sub.cancel();
       },
     );
+  }
+}
+
+/// A fake [AppConfigRepository] for widget tests.
+///
+/// When given a [FakeProfileRepository], the admin check is derived from its
+/// profiles (mirroring production, where `is_admin()` reads the profiles
+/// table), so claiming owner admin via the profile flow is reflected here too.
+class FakeAppConfigRepository implements AppConfigRepository {
+  FakeAppConfigRepository({this.admin = true, this.profileRepository});
+
+  /// Fallback admin flag used when no [profileRepository] is supplied.
+  bool admin;
+
+  final FakeProfileRepository? profileRepository;
+
+  /// Throws from every operation when true (used to test error states).
+  bool failRequests = false;
+
+  final Map<String, String> values = <String, String>{};
+
+  bool _isAdmin() =>
+      profileRepository?.profiles.values.any((UserProfile p) => p.isAdmin) ??
+      admin;
+
+  @override
+  Future<bool> isAdmin() async {
+    if (failRequests) throw Exception('config load failed');
+    return _isAdmin();
+  }
+
+  @override
+  Future<Map<String, String>> fetchAll() async {
+    if (failRequests) throw Exception('config load failed');
+    return Map<String, String>.unmodifiable(values);
+  }
+
+  @override
+  Future<void> setValue(String key, String value) async {
+    if (failRequests) throw Exception('config save failed');
+    values[key] = value;
+  }
+
+  @override
+  Future<void> remove(String key) async {
+    values.remove(key);
   }
 }
 

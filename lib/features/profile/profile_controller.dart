@@ -134,6 +134,15 @@ class ProfileController extends ChangeNotifier {
   /// Re-runs the auth-change handler (used by retry buttons).
   Future<void> reload() => _handleAuthChange();
 
+  /// Ensures the signed-in user can manage app configuration. Already-admin
+  /// users get true immediately; otherwise the "first user" bootstrap claims
+  /// admin if no admin exists yet. Returns true when the user is (now) admin.
+  /// The profile stream carries the flag flip back to the UI.
+  Future<bool> ensureOwnerAdmin() {
+    if (_profile?.isAdmin ?? false) return Future<bool>.value(true);
+    return _repository.claimOwnerAdmin(uid: _requireUid());
+  }
+
   Future<void> setUsername(String username) {
     return _repository.claimUsername(
       uid: _requireUid(),

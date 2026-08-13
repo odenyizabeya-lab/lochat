@@ -29,11 +29,18 @@ class AiAssistantScreen extends StatefulWidget {
 class _AiAssistantScreenState extends State<AiAssistantScreen> {
   final TextEditingController _composer = TextEditingController();
   bool _drafting = false;
+  bool _conversationsLoaded = false;
 
   @override
-  void initState() {
-    super.initState();
-    unawaited(AiScope.of(context).loadConversations());
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_conversationsLoaded) return;
+    _conversationsLoaded = true;
+    // Defer so the controller's synchronous notifyListeners never runs during
+    // the build phase.
+    scheduleMicrotask(() {
+      if (mounted) unawaited(AiScope.of(context).loadConversations());
+    });
   }
 
   @override

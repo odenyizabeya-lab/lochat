@@ -43,62 +43,6 @@ class HomeScreen extends StatelessWidget {
             Card(
               clipBehavior: Clip.antiAlias,
               child: InkWell(
-                onTap: () => context.push(AppRoutes.ai),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: <Widget>[
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: <Color>[
-                              scheme.primaryContainer,
-                              scheme.tertiaryContainer,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(
-                          Icons.auto_awesome_rounded,
-                          color: scheme.onPrimaryContainer,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              'LoText AI',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Write, rewrite, summarize and translate with AI.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(Icons.arrow_forward_rounded, color: scheme.onSurfaceVariant),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Card(
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
                 onTap: () => context.push(AppRoutes.addContact),
                 child: Padding(
                   padding: const EdgeInsets.all(20),

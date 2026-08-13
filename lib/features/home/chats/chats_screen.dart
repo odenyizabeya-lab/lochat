@@ -14,8 +14,21 @@ import '../../profile/models/user_profile.dart';
 /// Each row shows the peer, a preview of the last message, its time, and an
 /// unread badge. Tapping a row opens the conversation. A call-history card
 /// sits above the list.
+///
+/// Also reused as the admin dashboard's "Chat Room" (title set, calls card
+/// hidden) — the admin's conversations are ordinary 1-to-1 chats.
 class ChatsScreen extends StatelessWidget {
-  const ChatsScreen({super.key});
+  const ChatsScreen({
+    super.key,
+    this.title = 'Chats',
+    this.showCallsCard = true,
+  });
+
+  /// App bar title (the admin dashboard uses "Chat Room").
+  final String title;
+
+  /// Whether the call-history card is shown above the list.
+  final bool showCallsCard;
 
   @override
   Widget build(BuildContext context) {
@@ -23,11 +36,11 @@ class ChatsScreen extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Chats')),
+      appBar: AppBar(title: Text(title)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
-            _CallsCard(theme: theme, scheme: scheme),
+            if (showCallsCard) _CallsCard(theme: theme, scheme: scheme),
             Expanded(
               child: StreamBuilder<List<Conversation>>(
                 stream: ChatScope.of(context).watchConversations(),

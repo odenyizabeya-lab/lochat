@@ -149,6 +149,12 @@ class SupabaseProfileRepository implements ProfileRepository {
   }
 
   @override
+  Future<bool> claimOwnerAdmin({required String uid}) async {
+    final dynamic result = await _client.rpc('claim_owner_admin');
+    return result == true;
+  }
+
+  @override
   Future<UserProfile?> fetchUserByLotextId(String lotextId) async {
     final String id = lotextId.trim();
     if (!isValidLotextId(id)) return null;
@@ -255,6 +261,7 @@ class SupabaseProfileRepository implements ProfileRepository {
       lotextId: _nullIfEmpty(data['lotext_id'] as String?),
       photoURL: _nullIfEmpty(data['photo_url'] as String?),
       isOnline: (data['is_online'] as bool?) ?? false,
+      isAdmin: (data['is_admin'] as bool?) ?? false,
       lastSeen: _toDate(data['last_seen']),
       createdAt: _toDate(data['created_at']),
       updatedAt: _toDate(data['updated_at']),

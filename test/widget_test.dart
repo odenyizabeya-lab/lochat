@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:lotext/app.dart';
 import 'package:lotext/core/auth/auth_controller.dart';
 import 'package:lotext/core/auth/auth_user.dart';
+import 'package:lotext/core/router/app_routes.dart';
 import 'package:lotext/features/ai/ai_assistant_controller.dart';
 import 'package:lotext/features/calls/call_controller.dart';
 import 'package:lotext/features/chat/chat_controller.dart';
@@ -112,5 +114,57 @@ void main() {
 
     expect(find.text('Welcome, Ada'), findsOneWidget);
     expect(find.text('Chats'), findsWidgets);
+  });
+
+  group('AI assistant gating', () {
+    Future<GoRouter> signedInRouter(
+      WidgetTester tester, {
+      required bool isAdmin,
+    }) async {
+      final FakeProfileRepository repo = FakeProfileRepository()
+        ..seed(UserProfile(
+          uid: 'test-uid',
+          username: 'ada',
+          displayName: 'Ada',
+          isAdmin: isAdmin,
+        ));
+      await pumpApp(
+        tester,
+        authService: FakeAuthService(
+          initialUser: const AuthUser(uid: 'test-uid', email: 'ada@lotext.app'),
+        ),
+        profileRepository: repo,
+      );
+      return GoRouter.of(tester.element(find.text('Welcome, Ada')));
+    }
+
+    testWidgets('the AI card is not shown on Home', (WidgetTester tester) async {
+      await signedInRouter(tester, isAdmin: true);
+      expect(find.text('LoText AI'), findsNothing);
+    });
+
+    testWidgets('a non-admin cannot open the AI assistant',
+        (WidgetTester tester) async {
+      final GoRouter router = await signedInRouter(tester, isAdmin: false);
+
+      router.push(AppRoutes.ai);
+      await tester.pumpAndSettle();
+      expect(find.text('LoText AI'), findsNothing);
+      expect(find.text('Welcome, Ada'), findsOneWidget);
+
+      router.push(AppRoutes.adminSettings);
+      await tester.pumpAndSettle();
+      expect(find.text('Only admins can manage provider keys.'), findsNothing);
+      expect(find.text('Welcome, Ada'), findsOneWidget);
+    });
+
+    testWidgets('an admin can open the AI assistant',
+        (WidgetTester tester) async {
+      final GoRouter router = await signedInRouter(tester, isAdmin: true);
+
+      router.push(AppRoutes.ai);
+      await tester.pumpAndSettle();
+      expect(find.text('LoText AI'), findsWidgets);
+    });
   });
 }

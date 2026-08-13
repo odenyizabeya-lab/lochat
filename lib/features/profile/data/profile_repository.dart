@@ -70,6 +70,11 @@ abstract interface class ProfileRepository {
   /// existed; new accounts get theirs from the account-creation function.
   Future<String> ensureLotextId({required String uid});
 
+  /// Claims owner admin for [uid] while no admin exists yet (the "first user
+  /// becomes admin" bootstrap). Returns true when granted, false when an admin
+  /// already exists or the claim is otherwise rejected.
+  Future<bool> claimOwnerAdmin({required String uid});
+
   /// Exact-match lookup by 9-digit LoText ID. Returns null when no account has
   /// that ID. Never returns partial or "similar" matches.
   Future<UserProfile?> fetchUserByLotextId(String lotextId);

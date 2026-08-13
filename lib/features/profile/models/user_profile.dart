@@ -11,6 +11,7 @@ class UserProfile {
     this.lotextId,
     this.photoURL,
     this.isOnline = false,
+    this.isAdmin = false,
     this.lastSeen,
     this.createdAt,
     this.updatedAt,
@@ -34,6 +35,10 @@ class UserProfile {
   final String? photoURL;
 
   final bool isOnline;
+
+  /// Whether this user may manage app configuration (AI provider keys).
+  final bool isAdmin;
+
   final DateTime? lastSeen;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -49,6 +54,7 @@ class UserProfile {
     String? lotextId,
     String? photoURL,
     bool? isOnline,
+    bool? isAdmin,
     DateTime? lastSeen,
     DateTime? updatedAt,
   }) {
@@ -59,6 +65,7 @@ class UserProfile {
       lotextId: lotextId ?? this.lotextId,
       photoURL: photoURL ?? this.photoURL,
       isOnline: isOnline ?? this.isOnline,
+      isAdmin: isAdmin ?? this.isAdmin,
       lastSeen: lastSeen ?? this.lastSeen,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -76,6 +83,7 @@ class UserProfile {
       lotextId: lotextId,
       photoURL: null,
       isOnline: isOnline,
+      isAdmin: isAdmin,
       lastSeen: lastSeen,
       createdAt: createdAt,
       updatedAt: updatedAt,

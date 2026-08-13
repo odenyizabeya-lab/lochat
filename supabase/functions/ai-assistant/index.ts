@@ -6,10 +6,13 @@
 //      Authorization header by default, so only signed-in users can call it),
 //   2. persists conversations and messages in Postgres via the service role,
 //   3. calls the selected provider (OpenAI / Anthropic / Gemini) whose key
-//      lives only in the function's environment (supabase secrets).
+//      lives in the function's environment (supabase secrets) or in the
+//      `app_config` table managed from the app's Admin dashboard.
 //
-// Provider keys are set once with:
-//   supabase secrets set OPENAI_API_KEY=... ANTHROPIC_API_KEY=... GEMINI_API_KEY=...
+// Provider keys are resolved in this order: environment first (set once with
+// `supabase secrets set OPENAI_API_KEY=... ...`), then the `app_config` table.
+// Keys saved from the Admin dashboard land in `app_config` and take effect
+// immediately without a redeploy.
 //
 // Actions (body.action):
 //   list                                  -> user's conversations, newest first
@@ -20,6 +23,11 @@
 //   chat         { conversationId, content, task?, targetLanguage? }
 //                                          -> sends, persists both messages,
 //                                             returns { user, assistant }
+//   translateText { text, targetLanguage? } -> stateless text translation
+//   transcribe   { audioUrl, targetLanguage? }
+//                                          -> transcribe (Whisper) + translate a
+//                                             voice message, returns
+//                                             { transcript, translation }
 //
 // `task` switches the system prompt so the same endpoint powers normal chat and
 // the quick actions (write reply / rewrite / suggest replies / summarize /
@@ -46,6 +54,31 @@ const KEYS: Record<ProviderName, string | undefined> = {
   anthropic: Deno.env.get("ANTHROPIC_API_KEY"),
   gemini: Deno.env.get("GEMINI_API_KEY"),
 };
+
+// Row key in `app_config` for each provider. Matches the env var name so a
+// secret set in the environment always wins without special-casing.
+const MODEL_KEY_NAMES: Record<ProviderName, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  gemini: "GEMINI_API_KEY",
+};
+
+// Resolves a provider's API key: environment secret first, then the value an
+// admin saved from the app (read with the service role, so RLS never applies).
+async function loadProviderKey(
+  provider: ProviderName,
+  admin: ReturnType<typeof createClient>,
+): Promise<string | undefined> {
+  const envKey = KEYS[provider];
+  if (envKey) return envKey;
+  const { data, error } = await admin
+    .from("app_config")
+    .select("value")
+    .eq("key", MODEL_KEY_NAMES[provider])
+    .single();
+  if (error || !data) return undefined;
+  return data.value;
+}
 
 interface ChatTurn {
   role: string;
@@ -211,11 +244,12 @@ async function generateReply(
   provider: ProviderName,
   system: string,
   turns: ChatTurn[],
+  admin: ReturnType<typeof createClient>,
 ): Promise<string> {
-  const apiKey = KEYS[provider];
+  const apiKey = await loadProviderKey(provider, admin);
   if (!apiKey) {
     throw new Error(
-      `The ${provider} provider is not configured on the server yet.`,
+      `The ${provider} provider is not configured yet. Set its key in the Admin dashboard.`,
     );
   }
   switch (provider) {
@@ -403,7 +437,7 @@ Deno.serve(async (req) => {
 
         const turns = await db.history(conversationId);
         const system = systemPromptFor(task, targetLanguage);
-        const reply = await generateReply(provider, system, turns);
+        const reply = await generateReply(provider, system, turns, admin);
 
         const assistantMessage = await db.insertMessage(
           conversationId,
@@ -417,6 +451,100 @@ Deno.serve(async (req) => {
         }
 
         return json({ user: userMessage, assistant: assistantMessage });
+      }
+
+      case "translateText": {
+        // Stateless text translation for the chat screen (no AI conversation
+        // rows are created).
+        const text = String(body.text ?? "").trim();
+        if (text === "") return json({ error: "Text is empty" }, 400);
+        const targetLanguage = body.targetLanguage === undefined
+          ? "English"
+          : String(body.targetLanguage);
+        const system = systemPromptFor("translate", targetLanguage);
+        const reply = await generateReply(
+          "openai",
+          system,
+          [{ role: "user", content: text }],
+          admin,
+        );
+        const translation = reply.trim();
+        if (translation === "") {
+          return json({ error: "Could not translate the message" }, 400);
+        }
+        return json({ translation, targetLanguage });
+      }
+
+      case "transcribe": {
+        // Translates a voice message: transcribe it (Whisper), then translate
+        // the transcript. Returns both so the UI can show the original words
+        // and the translation.
+        const audioUrl = String(body.audioUrl ?? "").trim();
+        if (audioUrl === "") return json({ error: "No audio to transcribe" }, 400);
+        const targetLanguage = body.targetLanguage === undefined
+          ? "English"
+          : String(body.targetLanguage);
+
+        const audioRes = await fetch(audioUrl, {
+          headers: { Authorization: `Bearer ${serviceKey}` },
+        });
+        if (!audioRes.ok) {
+          return json({ error: "Could not download the voice message" }, 400);
+        }
+        const audioBuf = await audioRes.arrayBuffer();
+
+        const openaiKey = await loadProviderKey("openai", admin);
+        if (!openaiKey) {
+          return json({
+            error:
+              "The OpenAI provider is not configured yet. Set its key in the Admin dashboard.",
+          }, 400);
+        }
+
+        const form = new FormData();
+        form.append(
+          "file",
+          new Blob([audioBuf], { type: "audio/mp4" }),
+          "voice.m4a",
+        );
+        form.append("model", "whisper-1");
+        form.append("response_format", "json");
+
+        const whisperRes = await fetch(
+          "https://api.openai.com/v1/audio/transcriptions",
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${openaiKey}` },
+            body: form,
+          },
+        );
+        const whisperData = await whisperRes.json();
+        if (!whisperRes.ok) {
+          throw new Error(
+            whisperData?.error?.message ?? "Could not transcribe the voice message",
+          );
+        }
+        const transcript = String(whisperData?.text ?? "").trim();
+        if (transcript === "") {
+          return json(
+            { error: "No speech was detected in the voice message" },
+            400,
+          );
+        }
+
+        const system = systemPromptFor("translate", targetLanguage);
+        const translation = await generateReply(
+          "openai",
+          system,
+          [{ role: "user", content: transcript }],
+          admin,
+        );
+
+        return json({
+          transcript,
+          translation: translation.trim(),
+          targetLanguage,
+        });
       }
 
       default:

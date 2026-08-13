@@ -6,6 +6,8 @@ import '../../features/auth/login/login_screen.dart';
 import '../../features/auth/register/register_screen.dart';
 import '../../features/auth/welcome/welcome_screen.dart';
 import '../../features/ai/ai_assistant_screen.dart';
+import '../../features/admin/admin_chat_room_screen.dart';
+import '../../features/admin/admin_settings_screen.dart';
 import '../../features/calls/call_session_controller.dart';
 import '../../features/calls/models/call.dart';
 import '../../features/calls/screens/call_history_screen.dart';
@@ -36,6 +38,14 @@ const List<String> _authOnlyRoutes = <String>[
   AppRoutes.login,
   AppRoutes.register,
   AppRoutes.forgotPassword,
+];
+
+/// Routes that only admins may visit (the AI assistant, the admin dashboard
+/// and the admin chat room). Regular users are redirected away by the router.
+const List<String> _adminOnlyRoutes = <String>[
+  AppRoutes.ai,
+  AppRoutes.adminSettings,
+  AppRoutes.adminChatRoom,
 ];
 
 /// Builds the app's [GoRouter].
@@ -78,6 +88,12 @@ GoRouter createRouter({
         return location == AppRoutes.chooseUsername
             ? null
             : AppRoutes.chooseUsername;
+      }
+
+      // The AI assistant and admin dashboard are for admins only.
+      if (_adminOnlyRoutes.contains(location) &&
+          !(profileController.profile?.isAdmin ?? false)) {
+        return AppRoutes.home;
       }
 
       // Signed in with a username. Keep them out of the signed-out flow.
@@ -291,6 +307,18 @@ GoRouter createRouter({
         name: 'settings',
         builder: (BuildContext context, GoRouterState state) =>
             SettingsScreen(themeController: themeController),
+      ),
+      GoRoute(
+        path: AppRoutes.adminSettings,
+        name: 'admin-settings',
+        builder: (BuildContext context, GoRouterState state) =>
+            const AdminSettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminChatRoom,
+        name: 'admin-chat-room',
+        builder: (BuildContext context, GoRouterState state) =>
+            const AdminChatRoomScreen(),
       ),
     ],
   );

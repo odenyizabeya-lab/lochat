@@ -11,6 +11,12 @@ abstract final class AppRoutes {
   static const String profile = '/profile';
   static const String settings = '/settings';
 
+  /// Admin dashboard for AI provider keys (admins only).
+  static const String adminSettings = '/settings/admin';
+
+  /// Admin chat room: the admin's 1-to-1 conversations (admins only).
+  static const String adminChatRoom = '/settings/admin/chat-room';
+
   // Contacts.
   static const String contacts = '/contacts';
   static const String addContact = '/add-contact';
