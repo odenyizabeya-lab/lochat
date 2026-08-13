@@ -1,0 +1,116 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:lotext/app.dart';
+import 'package:lotext/core/auth/auth_controller.dart';
+import 'package:lotext/core/auth/auth_user.dart';
+import 'package:lotext/features/ai/ai_assistant_controller.dart';
+import 'package:lotext/features/calls/call_controller.dart';
+import 'package:lotext/features/chat/chat_controller.dart';
+import 'package:lotext/features/profile/models/user_profile.dart';
+import 'package:lotext/features/profile/profile_controller.dart';
+import 'package:lotext/shared/widgets/lotext_button.dart';
+
+import 'fakes.dart';
+
+/// Builds a fully wired test app with fake auth, profile, chat, calls and AI
+/// services.
+///
+/// All widget tests render at a realistic Android phone size (412x892 logical
+/// pixels) so overflow/layout bugs that only show up on phones are caught.
+Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
+  WidgetTester tester, {
+  FakeAuthService? authService,
+  FakeProfileRepository? profileRepository,
+  FakeChatRepository? chatRepository,
+  FakePhotoPicker? photoPicker,
+  FakeAiAssistantService? aiService,
+}) async {
+  final FakeAuthService service = authService ?? FakeAuthService();
+  final FakeProfileRepository profileRepo =
+      profileRepository ?? FakeProfileRepository();
+  final FakeChatRepository chatRepo =
+      chatRepository ?? FakeChatRepository(profileRepository: profileRepo);
+  final AuthController authController = AuthController(service: service);
+  final ProfileController profileController = ProfileController(
+    auth: authController,
+    repository: profileRepo,
+    photoPicker: photoPicker ?? FakePhotoPicker(),
+  );
+  final ChatController chatController =
+      ChatController(auth: authController, repository: chatRepo);
+  final CallController callController = CallController(
+    signaling: FakeCallSignalingService(),
+    rtcFactory: ({required bool isVideo}) => FakeCallRtcController(),
+  );
+  final AiAssistantController aiController = AiAssistantController(
+    auth: authController,
+    service: aiService ?? FakeAiAssistantService(),
+  );
+  await tester.binding.setSurfaceSize(const Size(412, 892));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(
+    LoTextApp(
+      authController: authController,
+      profileController: profileController,
+      chatController: chatController,
+      callController: callController,
+      aiController: aiController,
+    ),
+  );
+  await tester.pumpAndSettle();
+  return (authController, profileController, profileRepo);
+}
+
+void main() {
+  testWidgets('signed-out user sees the welcome screen', (WidgetTester tester) async {
+    await pumpApp(tester);
+
+    expect(find.text('Welcome to LoText'), findsOneWidget);
+    expect(find.text('Create your account'), findsOneWidget);
+  });
+
+  testWidgets('signed-in user with username lands on the main screen',
+      (WidgetTester tester) async {
+    final FakeProfileRepository repo = FakeProfileRepository()
+      ..seed(const UserProfile(
+        uid: 'test-uid',
+        username: 'ada',
+        displayName: 'Ada',
+        isOnline: true,
+      ));
+    await pumpApp(
+      tester,
+      authService: FakeAuthService(
+        initialUser: const AuthUser(uid: 'test-uid', email: 'ada@lotext.app'),
+      ),
+      profileRepository: repo,
+    );
+
+    expect(find.text('Welcome, Ada'), findsOneWidget);
+    expect(find.text('Chats'), findsWidgets);
+  });
+
+  testWidgets('signing in from the login screen opens the main screen',
+      (WidgetTester tester) async {
+    final FakeProfileRepository repo = FakeProfileRepository()
+      ..seed(const UserProfile(
+        uid: 'test-uid',
+        username: 'ada',
+        displayName: 'Ada',
+      ));
+    await pumpApp(tester, profileRepository: repo);
+
+    await tester.tap(find.text('Log in'));
+    await tester.pumpAndSettle();
+    expect(find.text('Welcome back'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'ada@lotext.app');
+    await tester.enterText(find.byType(TextFormField).at(1), 'secret123');
+    await tester.tap(find.widgetWithText(LoTextButton, 'Log in'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome, Ada'), findsOneWidget);
+    expect(find.text('Chats'), findsWidgets);
+  });
+}

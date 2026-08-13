@@ -1,0 +1,22 @@
+# LoText Supabase configuration (local CLI dev).
+# Deploy migrations with: supabase db push
+# Deploy functions with: supabase functions deploy ai-assistant
+# Set AI provider keys with:
+#   supabase secrets set OPENAI_API_KEY=... ANTHROPIC_API_KEY=... GEMINI_API_KEY=...
+
+project_id = "lotext"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[functions]
+enabled = true
+verify_jwt = true
