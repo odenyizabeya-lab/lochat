@@ -108,11 +108,14 @@ class ChatsScreen extends StatelessWidget {
         ? peer.displayName
         : peer.username;
     final String myUid = ChatScope.of(context).uid ?? '';
-    final String preview = conversation.hasLastMessage
-        ? (conversation.lastSentBy(myUid)
-            ? 'You: ${conversation.lastMessageText}'
-            : conversation.lastMessageText)
-        : 'Say hello';
+    final bool peerTyping = conversation.isTypingFrom(myUid);
+    final String preview = peerTyping
+        ? 'typing\u2026'
+        : (conversation.hasLastMessage
+            ? (conversation.lastSentBy(myUid)
+                ? 'You: ${conversation.lastMessageText}'
+                : conversation.lastMessageText)
+            : 'Say hello');
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -128,12 +131,17 @@ class ChatsScreen extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium?.copyWith(
-          color: conversation.unreadCount > 0
-              ? scheme.onSurface
-              : scheme.onSurfaceVariant,
-          fontWeight: conversation.unreadCount > 0
+          color: peerTyping
+              ? const Color(0xFF00A884)
+              : (conversation.unreadCount > 0
+                  ? scheme.onSurface
+                  : scheme.onSurfaceVariant),
+          fontWeight: peerTyping
               ? FontWeight.w600
-              : FontWeight.w400,
+              : (conversation.unreadCount > 0
+                  ? FontWeight.w600
+                  : FontWeight.w400),
+          fontStyle: peerTyping ? FontStyle.italic : FontStyle.normal,
         ),
       ),
       trailing: Column(

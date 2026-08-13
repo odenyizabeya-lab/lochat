@@ -201,4 +201,79 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('peer typing shows a typing indicator in the chat app bar',
+      (WidgetTester tester) async {
+    final (_, FakeChatRepository chatRepo) = await pumpChatApp(tester);
+    final String conversationId =
+        chatRepo.conversationIdFor('me-uid', 'them-uid');
+
+    await openChatWithSarah(tester);
+    expect(find.text('Online'), findsOneWidget);
+
+    // Sarah starts typing -> app bar subtitle switches to "typing…".
+    await chatRepo.setTyping(
+      conversationId: conversationId,
+      uid: 'them-uid',
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('typing\u2026'), findsOneWidget);
+    expect(find.text('Online'), findsNothing);
+  });
+
+  testWidgets('own typing signals are never shown as a typing indicator',
+      (WidgetTester tester) async {
+    final (_, FakeChatRepository chatRepo) = await pumpChatApp(tester);
+    final String conversationId =
+        chatRepo.conversationIdFor('me-uid', 'them-uid');
+
+    await openChatWithSarah(tester);
+
+    // My own typing stamps must not surface as "typing…" back to me.
+    await chatRepo.setTyping(conversationId: conversationId, uid: 'me-uid');
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('typing\u2026'), findsNothing);
+    expect(find.text('Online'), findsOneWidget);
+  });
+
+  testWidgets('chats tab preview shows typing for the peer and hides it when '
+      'the peer stops', (WidgetTester tester) async {
+    final FakeProfileRepository profileRepo = FakeProfileRepository()
+      ..seed(me())
+      ..seed(sarah());
+    profileRepo.contacts['me-uid'] = <String>{'them-uid'};
+    final FakeChatRepository chatRepo =
+        FakeChatRepository(profileRepository: profileRepo);
+    final String conversationId =
+        chatRepo.conversationIdFor('me-uid', 'them-uid');
+    await chatRepo.ensureConversation(uid: 'me-uid', contactUid: 'them-uid');
+    await chatRepo.sendMessage(
+      conversationId: conversationId,
+      senderUid: 'them-uid',
+      text: 'Hey Me',
+    );
+
+    await pumpApp(
+      tester,
+      authService: FakeAuthService(
+        initialUser: const AuthUser(uid: 'me-uid', email: 'me@lotext.app'),
+      ),
+      profileRepository: profileRepo,
+      chatRepository: chatRepo,
+    );
+    await tester.tap(find.text('Chats'));
+    await tester.pumpAndSettle();
+
+    // Peer typing replaces the last-message preview.
+    await chatRepo.setTyping(conversationId: conversationId, uid: 'them-uid');
+    await tester.pumpAndSettle();
+    expect(find.text('typing\u2026'), findsOneWidget);
+    expect(find.text('Hey Me'), findsNothing);
+
+    // Expired stamp -> the preview reverts to the last message.
+    chatRepo.expireTyping(conversationId);
+    await tester.pumpAndSettle();
+    expect(find.text('typing\u2026'), findsNothing);
+    expect(find.text('Hey Me'), findsOneWidget);
+  });
 }

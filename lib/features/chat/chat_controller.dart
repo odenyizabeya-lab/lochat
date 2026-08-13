@@ -100,32 +100,36 @@ class ChatController extends ChangeNotifier {
   /// without dropping the realtime channel. Because a broadcast controller does
   /// not replay past events to late subscribers, each caller gets a fresh
   /// wrapper that re-emits the latest cached snapshot as soon as it subscribes.
+  /// Live conversation list for the signed-in user, most recent first.
+  ///
+  /// Backed by one persistent realtime subscription whose latest snapshot is
+  /// cached. Each caller gets a fresh replay stream: it immediately emits the
+  /// cached snapshot (so late subscribers never miss the current state) and
+  /// then forwards live updates. Because every returned stream is independent,
+  /// screens can subscribe and unsubscribe freely (e.g. the app bar on each
+  /// rebuild) without disturbing the persistent subscription.
   Stream<List<Conversation>> watchConversations() {
     final Stream<List<Conversation>> source =
         _conversationsStream ??= _createConversationsBroadcast();
-    late final StreamController<List<Conversation>> controller;
-    StreamSubscription<List<Conversation>>? forwardSub;
-    controller = StreamController<List<Conversation>>.broadcast(
-      onListen: () {
+    return Stream<List<Conversation>>.multi(
+      (StreamController<List<Conversation>> controller) {
         final List<Conversation>? latest = _conversationsCache;
         if (latest != null && !controller.isClosed) controller.add(latest);
-      },
-      onCancel: () {
-        forwardSub?.cancel();
+        late final StreamSubscription<List<Conversation>> sub;
+        sub = source.listen(
+          (List<Conversation> value) {
+            if (!controller.isClosed) controller.add(value);
+          },
+          onError: (Object e, StackTrace st) {
+            if (!controller.isClosed) controller.addError(e, st);
+          },
+          onDone: () {
+            if (!controller.isClosed) controller.close();
+          },
+        );
+        controller.onCancel = () => sub.cancel();
       },
     );
-    forwardSub = source.listen(
-      (List<Conversation> value) {
-        if (!controller.isClosed) controller.add(value);
-      },
-      onError: (Object e, StackTrace st) {
-        if (!controller.isClosed) controller.addError(e, st);
-      },
-      onDone: () {
-        if (!controller.isClosed) controller.close();
-      },
-    );
-    return controller.stream;
   }
 
   Stream<List<Conversation>> _createConversationsBroadcast() {
@@ -296,6 +300,16 @@ class ChatController extends ChangeNotifier {
     return _repository.markMessagesRead(
       conversationId: conversationId,
       messageIds: messageIds,
+    );
+  }
+
+  /// Signals the peer that the signed-in user is typing in [conversationId].
+  /// The stamp expires server-side, so callers repeat it (throttled) while the
+  /// user keeps typing.
+  Future<void> setTyping(String conversationId) {
+    return _repository.setTyping(
+      conversationId: conversationId,
+      uid: _requireUid(),
     );
   }
 

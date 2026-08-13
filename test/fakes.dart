@@ -356,6 +356,8 @@ class FakeConversationData {
   String lastSenderUid = '';
   String lastSenderName = '';
   final Map<String, int> unreadCounts = <String, int>{};
+  String? typingUid;
+  DateTime? typingUntil;
 }
 
 /// An in-memory [ChatRepository] for widget tests.
@@ -439,6 +441,8 @@ class FakeChatRepository implements ChatRepository {
         lastSenderUid: data.lastSenderUid,
         lastSenderName: data.lastSenderName,
         unreadCount: data.unreadCounts[uid] ?? 0,
+        typingUid: data.typingUid,
+        typingUntil: data.typingUntil,
       ));
     }
     result.sort((Conversation a, Conversation b) {
@@ -532,6 +536,10 @@ class FakeChatRepository implements ChatRepository {
       data.lastSenderUid = senderUid;
       data.lastSenderName =
           profileRepository.profiles[senderUid]?.displayName ?? senderUid;
+      if (data.typingUid == senderUid) {
+        data.typingUid = null;
+        data.typingUntil = null;
+      }
       for (final String participant in data.participantIds) {
         if (participant != senderUid) {
           data.unreadCounts[participant] =
@@ -669,6 +677,31 @@ class FakeChatRepository implements ChatRepository {
       );
     }
     _emitMessages(conversationId);
+  }
+
+  @override
+  Future<void> setTyping({
+    required String conversationId,
+    required String uid,
+  }) async {
+    final FakeConversationData? data = conversations[conversationId];
+    if (data == null || !data.participantIds.contains(uid)) return;
+    data.typingUid = uid;
+    data.typingUntil = DateTime.now().add(const Duration(seconds: 8));
+    for (final String participant in data.participantIds) {
+      _emitConversations(participant);
+    }
+  }
+
+  /// Simulates the server-side expiry of a typing stamp.
+  void expireTyping(String conversationId) {
+    final FakeConversationData? data = conversations[conversationId];
+    if (data == null) return;
+    data.typingUid = null;
+    data.typingUntil = null;
+    for (final String participant in data.participantIds) {
+      _emitConversations(participant);
+    }
   }
 
   @override

@@ -14,6 +14,8 @@ class Conversation {
     this.lastSenderUid = '',
     this.lastSenderName = '',
     this.unreadCount = 0,
+    this.typingUid,
+    this.typingUntil,
   });
 
   /// Deterministic conversation ID (`<uidA>_<uidB>`, uids sorted), so the
@@ -37,8 +39,28 @@ class Conversation {
   /// Unread count resolved for the signed-in viewer.
   final int unreadCount;
 
+  /// UID of whichever participant is currently typing, if any.
+  final String? typingUid;
+
+  /// When the typing stamp expires. The indicator is shown until this instant.
+  final DateTime? typingUntil;
+
   bool get hasLastMessage => lastMessageText.isNotEmpty;
 
   /// Whether [uid] wrote the last message (used for the "You:" prefix).
   bool lastSentBy(String uid) => lastSenderUid.isNotEmpty && lastSenderUid == uid;
+
+  /// Whether the peer (any participant other than [viewerUid]) is currently
+  /// typing. Own typing signals are ignored so a self-sent write can never
+  /// surface "typing..." back to the typist.
+  bool isTypingFrom(String viewerUid) {
+    final String? typingUid = this.typingUid;
+    final DateTime? typingUntil = this.typingUntil;
+    if (typingUid == null ||
+        typingUntil == null ||
+        typingUid == viewerUid) {
+      return false;
+    }
+    return typingUntil.isAfter(DateTime.now());
+  }
 }

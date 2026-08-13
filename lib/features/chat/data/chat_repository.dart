@@ -166,6 +166,16 @@ abstract interface class ChatRepository {
   /// notification Cloud Function to reach this device.
   Future<void> registerFcmToken({required String uid, required String token});
 
+  /// Signals that [uid] is actively typing in the conversation.
+  ///
+  /// The stamp expires on the server after a few seconds, so callers should
+  /// invoke this repeatedly (throttled) while the user keeps typing. Sending a
+  /// message clears the sender's own stamp.
+  Future<void> setTyping({
+    required String conversationId,
+    required String uid,
+  });
+
   /// Removes an FCM device token (called when the user signs out on this
   /// device so the previous user stops receiving pushes here).
   Future<void> unregisterFcmToken({required String uid, required String token});

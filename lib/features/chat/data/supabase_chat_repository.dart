@@ -60,6 +60,8 @@ class SupabaseChatRepository implements ChatRepository {
           lastSenderUid: (row['last_sender_uid'] as String?) ?? '',
           lastSenderName: (row['last_sender_name'] as String?) ?? '',
           unreadCount: (unread?[uid] as num?)?.toInt() ?? 0,
+          typingUid: (row['typing_uid'] as String?) ?? '',
+          typingUntil: _toDate(row['typing_until']),
         ));
       }
       return result;
@@ -301,6 +303,16 @@ class SupabaseChatRepository implements ChatRepository {
       'token': token,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'uid,token');
+  }
+
+  @override
+  Future<void> setTyping({
+    required String conversationId,
+    required String uid,
+  }) async {
+    await _client.rpc('set_typing', params: <String, dynamic>{
+      'p_conversation_id': conversationId,
+    });
   }
 
   @override

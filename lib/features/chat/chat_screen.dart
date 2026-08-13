@@ -61,6 +61,10 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<List<ChatMessage>>? _sub;
   bool _subscribed = false;
 
+  /// Stable conversations stream for the app bar (the peer's name and typing
+  /// indicator). Created once so rebuilds don't churn subscriptions.
+  Stream<List<Conversation>>? _conversationsStream;
+
   /// Shared player so only one voice message plays at a time.
   VoiceMessagesPlayer? _voicePlayer;
 
@@ -69,6 +73,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Peer's display name, resolved from the live conversation stream.
   String _peerName = 'Chat';
+
+  /// Latest conversation snapshot, kept so the typing indicator can refresh
+  /// itself when the peer's typing stamp expires without a new stream event.
+  Conversation? _currentConversation;
+  Timer? _typingRefreshTimer;
 
   /// Message the user is currently replying to.
   ChatMessage? _replyTo;
@@ -88,10 +97,19 @@ class _ChatScreenState extends State<ChatScreen> {
       _myUid = chat.uid;
       _voicePlayer = VoiceMessagesPlayer(chat.voicePlayerFactory);
       _subscribe();
+      _typingRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        final Conversation? conversation = _currentConversation;
+        if (conversation != null &&
+            conversation.isTypingFrom(_myUid ?? '')) {
+          setState(() {});
+        }
+      });
     }
   }
 
   void _subscribe() {
+    _conversationsStream = _chat!.watchConversations();
     _sub = _chat!.watchMessages(widget.conversationId).listen(
           (List<ChatMessage> messages) {
             if (!mounted) return;
@@ -179,6 +197,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _typingRefreshTimer?.cancel();
     unawaited(_chat?.markConversationRead(widget.conversationId));
     _sub?.cancel();
     _voicePlayer?.dispose();
@@ -500,7 +519,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
       child: StreamBuilder<List<Conversation>>(
-        stream: _chat!.watchConversations(),
+        stream: _conversationsStream,
         builder: (BuildContext context,
             AsyncSnapshot<List<Conversation>> snapshot) {
           final List<Conversation> conversations =
@@ -518,6 +537,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? conversation.peer.displayName
                   : conversation.peer.username);
           _peerName = displayName;
+          _currentConversation = conversation;
+          final bool peerTyping = conversation?.isTypingFrom(_myUid ?? '') ?? false;
 
           return AppBar(
             backgroundColor: style.header,
@@ -554,8 +575,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: style.onHeaderSub,
+                          color: peerTyping
+                              ? const Color(0xFFA7F3D0)
+                              : style.onHeaderSub,
                           fontSize: 12.5,
+                          fontStyle: peerTyping
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                          fontWeight: peerTyping
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                       ),
                     ],
@@ -600,6 +629,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _presenceLine(Conversation? conversation) {
     if (conversation == null) return '';
+    if (conversation.isTypingFrom(_myUid ?? '')) return 'typing\u2026';
     final UserProfile peer = conversation.peer;
     return peer.isOnline
         ? 'Online'

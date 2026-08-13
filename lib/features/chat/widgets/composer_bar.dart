@@ -56,6 +56,11 @@ class _ChatComposerState extends State<ChatComposer> {
   final TextEditingController _input = TextEditingController();
   bool _canSend = false;
 
+  // Typing indicator: throttled so the peer receives at most one signal per
+  // ~3s while the user is typing. The stamp expires server-side after 8s, so
+  // a single call is enough to keep the indicator live for the next window.
+  DateTime _lastTypingSignalAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   _ComposerAttachment? _attachment;
   bool _uploading = false;
   double? _uploadProgress;
@@ -80,6 +85,15 @@ class _ChatComposerState extends State<ChatComposer> {
   void _onInputChanged() {
     final bool canSend = _input.text.trim().isNotEmpty;
     if (canSend != _canSend) setState(() => _canSend = canSend);
+    _notifyTyping();
+  }
+
+  void _notifyTyping() {
+    if (_input.text.trim().isEmpty) return;
+    final DateTime now = DateTime.now();
+    if (now.difference(_lastTypingSignalAt).inMilliseconds < 3000) return;
+    _lastTypingSignalAt = now;
+    unawaited(widget.chat.setTyping(widget.conversationId));
   }
 
   void _sendText() {
