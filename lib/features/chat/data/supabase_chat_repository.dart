@@ -139,6 +139,7 @@ class SupabaseChatRepository implements ChatRepository {
     String? replyToType,
     String? replyToText,
     String? replyToSender,
+    String? voiceEffect,
   }) async {
     final MessageType type = media?.type ?? MessageType.text;
     final String body = text.trim();
@@ -166,6 +167,7 @@ class SupabaseChatRepository implements ChatRepository {
         'p_reply_to_type': replyToType,
         'p_reply_to_text': replyToText,
         'p_reply_to_sender': replyToSender,
+        'p_voice_effect': voiceEffect ?? media?.voiceEffect,
       });
     } on PostgrestException catch (e) {
       if (e.message.contains('INVALID_CONVERSATION')) {
@@ -358,6 +360,7 @@ class SupabaseChatRepository implements ChatRepository {
       replyToType: _nullIfEmpty(data['reply_to_type'] as String?),
       replyToText: _nullIfEmpty(data['reply_to_text'] as String?),
       replyToSender: _nullIfEmpty(data['reply_to_sender'] as String?),
+      voiceEffect: _nullIfEmpty(data['voice_effect'] as String?),
     );
   }
 

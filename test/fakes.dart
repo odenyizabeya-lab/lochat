@@ -565,6 +565,7 @@ class FakeChatRepository implements ChatRepository {
     String? replyToType,
     String? replyToText,
     String? replyToSender,
+    String? voiceEffect,
   }) async {
     final String id = messageId ?? 'msg-${_messageSeed++}';
     final ChatMessage message = ChatMessage(
@@ -586,6 +587,7 @@ class FakeChatRepository implements ChatRepository {
       replyToType: replyToType,
       replyToText: replyToText,
       replyToSender: replyToSender,
+      voiceEffect: voiceEffect,
     );
     messages.putIfAbsent(conversationId, () => <ChatMessage>[]).add(message);
 
@@ -880,12 +882,18 @@ class FakeVoicePlayer implements VoicePlayer {
   String? url;
   int playCalls = 0;
   int pauseCalls = 0;
+  double? pitch;
 
   @override
   Future<void> load(String url) async {
     this.url = url;
     if (!_duration.isClosed) _duration.add(const Duration(seconds: 30));
     if (!_loading.isClosed) _loading.add(false);
+  }
+
+  @override
+  Future<void> setPitch(double pitch) async {
+    this.pitch = pitch;
   }
 
   @override

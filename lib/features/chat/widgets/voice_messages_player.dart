@@ -53,10 +53,11 @@ class VoiceMessagesPlayer extends ChangeNotifier {
   }
 
   /// Plays [url] for [messageId]; tapping the active message toggles
-  /// play/pause instead.
+  /// play/pause instead. [pitch] (voice changer) is applied on this clip.
   Future<void> toggle({
     required String messageId,
     required String url,
+    double pitch = 1.0,
   }) async {
     _init();
     if (_activeId == messageId) {
@@ -76,6 +77,7 @@ class VoiceMessagesPlayer extends ChangeNotifier {
     _playing = false;
     notifyListeners();
     await _player.load(url);
+    await _player.setPitch(pitch);
     _loading = false;
     notifyListeners();
     await _player.play();

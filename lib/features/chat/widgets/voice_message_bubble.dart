@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/utils/time_utils.dart';
 import '../models/chat_message.dart';
+import '../models/voice_effect.dart';
 import 'bubble_frame.dart';
 import 'reply_preview.dart';
 import 'voice_messages_player.dart';
@@ -74,8 +75,14 @@ class VoiceMessageBubble extends StatelessWidget {
                   onTap: () {
                     final String? url = message.mediaUrl;
                     if (url == null) return;
+                    final VoiceEffectPreset? effect =
+                        voiceEffectPresetForId(message.voiceEffect);
                     unawaited(
-                      player.toggle(messageId: message.id, url: url),
+                      player.toggle(
+                        messageId: message.id,
+                        url: url,
+                        pitch: effect?.pitch ?? 1.0,
+                      ),
                     );
                   },
                 ),
@@ -96,6 +103,11 @@ class VoiceMessageBubble extends StatelessWidget {
                   total: messageDuration,
                   color: foreground,
                 ),
+                if (voiceEffectPresetForId(message.voiceEffect) != null)
+                  _VoiceEffectBadge(
+                    effect: voiceEffectPresetForId(message.voiceEffect)!,
+                    foreground: foreground,
+                  ),
               ],
             ),
             const SizedBox(height: 2),
@@ -237,6 +249,45 @@ class _DurationText extends StatelessWidget {
     return Text(
       formatDuration(shown),
       style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+    );
+  }
+}
+
+/// Small pill showing the voice-changer effect applied to a clip.
+class _VoiceEffectBadge extends StatelessWidget {
+  const _VoiceEffectBadge({required this.effect, required this.foreground});
+
+  final VoiceEffectPreset effect;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: foreground.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            effect.isMan ? Icons.man_rounded : Icons.woman_rounded,
+            size: 12,
+            color: foreground,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            effect.label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/auth/auth_controller.dart';
+import 'data/chat_ai_service.dart';
 import 'data/chat_repository.dart';
+import 'data/supabase_chat_ai_service.dart';
 import 'media/chat_media_picker.dart';
 import 'media/device_chat_media_picker.dart';
 import 'media/device_voice_recorder.dart';
@@ -36,11 +38,13 @@ class ChatController extends ChangeNotifier {
     VoiceRecorder? voiceRecorder,
     VoicePlayerFactory? voicePlayerFactory,
     VideoPlaybackControllerFactory? videoPlaybackFactory,
+    ChatAiService? chatAi,
   })  : _mediaPicker = mediaPicker ?? DeviceChatMediaPicker(),
         _voiceRecorder = voiceRecorder ?? DeviceVoiceRecorder(),
         _voicePlayerFactory = voicePlayerFactory ?? DeviceVoicePlayer.new,
         _videoPlaybackFactory =
-            videoPlaybackFactory ?? defaultDeviceVideoPlaybackController {
+            videoPlaybackFactory ?? defaultDeviceVideoPlaybackController,
+        _chatAi = chatAi {
     _auth.addListener(_handleAuthChange);
     _handleAuthChange();
   }
@@ -51,6 +55,9 @@ class ChatController extends ChangeNotifier {
   final VoiceRecorder _voiceRecorder;
   final VoicePlayerFactory _voicePlayerFactory;
   final VideoPlaybackControllerFactory _videoPlaybackFactory;
+  final ChatAiService? _chatAi;
+
+  ChatAiService? _lazyChatAi;
 
   int _messageSeed = 0;
 
@@ -70,6 +77,13 @@ class ChatController extends ChangeNotifier {
   /// Builds a video player for a video message URL.
   VideoPlaybackControllerFactory get videoPlaybackFactory =>
       _videoPlaybackFactory;
+
+  /// AI helpers for in-chat translation (text and voice messages).
+  ///
+  /// Lazily created so tests that inject fakes never touch the Supabase
+  /// client; tests may inject a [ChatAiService] fake instead.
+  ChatAiService get chatAi =>
+      _chatAi ?? (_lazyChatAi ??= SupabaseChatAiService());
 
   Stream<List<Conversation>>? _conversationsStream;
   StreamSubscription<List<Conversation>>? _conversationsSub;
@@ -239,6 +253,7 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Sends a message whose media has already been uploaded to [MessageMedia.url].
+  /// [voiceEffect] is the voice-changer preset id applied to a voice message.
   Future<void> sendMediaMessage({
     required String conversationId,
     required String messageId,
@@ -247,6 +262,7 @@ class ChatController extends ChangeNotifier {
     String? replyToType,
     String? replyToText,
     String? replyToSender,
+    String? voiceEffect,
   }) {
     return _repository.sendMessage(
       conversationId: conversationId,
@@ -257,6 +273,7 @@ class ChatController extends ChangeNotifier {
       replyToType: replyToType,
       replyToText: replyToText,
       replyToSender: replyToSender,
+      voiceEffect: voiceEffect ?? media.voiceEffect,
     );
   }
 

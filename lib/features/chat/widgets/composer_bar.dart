@@ -11,6 +11,7 @@ import '../data/chat_repository.dart';
 import '../media/chat_media_picker.dart';
 import '../media/voice_recorder.dart';
 import '../models/chat_message.dart';
+import '../models/voice_effect.dart';
 import 'emoji_picker.dart';
 import 'reply_preview.dart';
 
@@ -19,7 +20,9 @@ import 'reply_preview.dart';
 ///
 /// Media is uploaded in the background with a live progress bar and can be
 /// cancelled. Voice messages are recorded with long-press and sent on release
-/// (or cancelled by dragging left or tapping cancel).
+/// (or cancelled by dragging left or tapping cancel). When
+/// [voiceEffectsEnabled] is true (admin only) a voice-changer button appears
+/// so the admin can pick a man/woman voice before recording.
 class ChatComposer extends StatefulWidget {
   const ChatComposer({
     super.key,
@@ -29,6 +32,7 @@ class ChatComposer extends StatefulWidget {
     this.replyToLabel,
     this.replyToSender,
     this.onReplyCleared,
+    this.voiceEffectsEnabled = false,
   });
 
   final ChatController chat;
@@ -45,6 +49,9 @@ class ChatComposer extends StatefulWidget {
 
   /// Called when the user dismisses the reply quote.
   final VoidCallback? onReplyCleared;
+
+  /// When true (admins) a voice-changer picker is shown next to the mic.
+  final bool voiceEffectsEnabled;
 
   @override
   State<ChatComposer> createState() => _ChatComposerState();
@@ -72,6 +79,9 @@ class _ChatComposerState extends State<ChatComposer> {
   bool _cancelArmed = false;
   int _recordElapsedSeconds = 0;
   Timer? _recordTimer;
+
+  // Voice changer (admin only): the preset applied to the next voice message.
+  VoiceEffectPreset? _voiceEffect;
 
   @override
   void dispose() {
@@ -294,6 +304,7 @@ class _ChatComposerState extends State<ChatComposer> {
           fileName: attachment.fileName,
           mimeType: attachment.contentType,
           sizeBytes: attachment.sizeBytes,
+          voiceEffect: attachment.voiceEffect,
         ),
         replyToId: widget.replyTo?.id,
         replyToType: widget.replyTo?.type.name,
@@ -301,6 +312,7 @@ class _ChatComposerState extends State<ChatComposer> {
             ? widget.replyTo?.text
             : null,
         replyToSender: widget.replyToSender,
+        voiceEffect: attachment.voiceEffect,
       );
       if (!mounted) return;
       setState(() {
@@ -425,6 +437,7 @@ class _ChatComposerState extends State<ChatComposer> {
           durationMs: clip.durationMs,
           sizeBytes: clip.bytes.length,
           label: 'Voice message',
+          voiceEffect: _voiceEffect?.id,
         );
       });
       await _sendAttachment();
@@ -456,6 +469,11 @@ class _ChatComposerState extends State<ChatComposer> {
                 label: widget.replyToLabel ?? 'Message',
                 preview: replyPreviewText(replyTo),
                 onClose: () => widget.onReplyCleared?.call(),
+              ),
+            if (widget.voiceEffectsEnabled && _voiceEffect != null)
+              _VoiceEffectBanner(
+                effect: _voiceEffect!,
+                onClear: () => setState(() => _voiceEffect = null),
               ),
             if (_recording)
               _RecordingPanel(
@@ -501,6 +519,8 @@ class _ChatComposerState extends State<ChatComposer> {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (widget.voiceEffectsEnabled)
+                      _buildVoiceEffectButton(context),
                     _buildSendMicToggle(context),
                   ],
                 ),
@@ -591,6 +611,115 @@ class _ChatComposerState extends State<ChatComposer> {
       ),
     );
   }
+
+  // ----- Voice changer (admin only) -----
+
+  Widget _buildVoiceEffectButton(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final VoiceEffectPreset? selected = _voiceEffect;
+    return IconButton(
+      tooltip: selected == null
+          ? 'Voice changer: pick a man or woman voice'
+          : 'Voice: ${selected.label} \u00b7 tap to change',
+      onPressed: _uploading ? null : _showVoiceEffectPicker,
+      icon: Icon(
+        Icons.record_voice_over_rounded,
+        color: selected == null ? scheme.onSurfaceVariant : scheme.primary,
+        size: 26,
+      ),
+    );
+  }
+
+  Future<void> _showVoiceEffectPicker() async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final VoiceEffectPreset? current = _voiceEffect;
+    final Object? picked = await showModalBottomSheet<Object?>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext context) {
+        Widget section(VoiceGender gender) {
+          final List<VoiceEffectPreset> presets =
+              gender == VoiceGender.man ? manVoicePresets : womanVoicePresets;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+                child: Text(
+                  gender == VoiceGender.man ? 'Man voices' : 'Woman voices',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              for (final VoiceEffectPreset preset in presets)
+                ListTile(
+                  leading: Icon(
+                    preset.isMan
+                        ? Icons.man_rounded
+                        : Icons.woman_rounded,
+                    color: scheme.primary,
+                  ),
+                  title: Text(preset.label),
+                  subtitle: Text(
+                    preset.isMan ? 'Deepens your voice' : 'Raises your voice',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                  trailing: current?.id == preset.id
+                      ? Icon(Icons.check_rounded, color: scheme.primary)
+                      : null,
+                  onTap: () => Navigator.of(context).pop(preset),
+                ),
+            ],
+          );
+        }
+
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Text(
+                    'Pick a voice for your next voice message. Everyone who '
+                    'plays it will hear it with this voice.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                ),
+                section(VoiceGender.man),
+                section(VoiceGender.woman),
+                ListTile(
+                  leading: Icon(Icons.voice_over_off_rounded,
+                      color: scheme.onSurfaceVariant),
+                  title: const Text('No voice changer'),
+                  trailing: current == null
+                      ? Icon(Icons.check_rounded, color: scheme.primary)
+                      : null,
+                  onTap: () => Navigator.of(context).pop(_kNoEffect),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    if (identical(picked, _kNoEffect)) {
+      setState(() => _voiceEffect = null);
+    } else {
+      setState(() => _voiceEffect = picked as VoiceEffectPreset);
+    }
+  }
+
+  static const Object _kNoEffect = Object();
 }
 
 /// Quote banner shown above the input while replying, with a close button.
@@ -653,6 +782,49 @@ class _ReplyBanner extends StatelessWidget {
   }
 }
 
+/// Banner shown above the input while a voice-changer voice is selected.
+class _VoiceEffectBanner extends StatelessWidget {
+  const _VoiceEffectBanner({required this.effect, required this.onClear});
+
+  final VoiceEffectPreset effect;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Container(
+      color: scheme.surfaceContainerLow,
+      padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            effect.isMan ? Icons.man_rounded : Icons.woman_rounded,
+            size: 18,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Voice changer: ${effect.label}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onClear,
+            child: const Text('Off'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Photo/video/voice picked but not yet sent. Holds the bytes to upload and
 /// everything needed to build the final [MessageMedia].
 class _ComposerAttachment {
@@ -669,6 +841,7 @@ class _ComposerAttachment {
     this.height,
     this.sizeBytes,
     this.label,
+    this.voiceEffect,
   });
 
   final String messageId;
@@ -686,6 +859,9 @@ class _ComposerAttachment {
   final double? height;
   final int? sizeBytes;
   final String? label;
+
+  /// Voice-changer preset id applied to a voice message.
+  final String? voiceEffect;
 }
 
 class _PickChoice {

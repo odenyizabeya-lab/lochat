@@ -32,6 +32,7 @@ class ChatMessage {
     this.replyToType,
     this.replyToText,
     this.replyToSender,
+    this.voiceEffect,
   });
 
   final String id;
@@ -86,4 +87,9 @@ class ChatMessage {
 
   /// Display name of the quoted message's author at reply time.
   final String? replyToSender;
+
+  /// Id of the [VoiceEffectPreset] applied to a [MessageType.voice] message
+  /// (null when no voice changer effect was used). Everyone who plays the
+  /// clip hears the effect.
+  final String? voiceEffect;
 }

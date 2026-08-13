@@ -24,6 +24,7 @@ class MessageMedia {
     this.fileName,
     this.mimeType,
     this.sizeBytes,
+    this.voiceEffect,
   });
 
   final MessageType type;
@@ -35,6 +36,9 @@ class MessageMedia {
   final String? fileName;
   final String? mimeType;
   final int? sizeBytes;
+
+  /// Id of the [VoiceEffectPreset] applied to a voice message.
+  final String? voiceEffect;
 }
 
 /// Handle for an in-flight chat media upload to Supabase Storage.
@@ -98,6 +102,7 @@ abstract interface class ChatRepository {
     String? replyToType,
     String? replyToText,
     String? replyToSender,
+    String? voiceEffect,
   });
 
   /// Removes a message for everyone in the conversation. Only the original

@@ -6,11 +6,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/utils/time_utils.dart';
+import '../../../shared/languages.dart';
 import '../../../shared/widgets/error_view.dart';
 import '../../../shared/widgets/loading_view.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import 'chat_controller.dart';
 import 'chat_scope.dart';
+import 'data/chat_ai_service.dart';
 import 'models/chat_message.dart';
 import 'models/conversation.dart';
 import 'widgets/chat_date_header.dart';
@@ -42,7 +44,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-enum _MessageAction { reply, copy, delete }
+enum _MessageAction { reply, copy, delete, translate }
 
 class _ChatScreenState extends State<ChatScreen> {
   ChatController? _chat;
@@ -351,6 +353,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   label: 'Copy text',
                   value: _MessageAction.copy,
                 ),
+              if (isText || message.type == MessageType.voice)
+                _ActionTile(
+                  icon: Icons.translate_rounded,
+                  label: isText ? 'Translate' : 'Translate voice',
+                  value: _MessageAction.translate,
+                ),
               if (fromMe)
                 _ActionTile(
                   icon: Icons.delete_outline_rounded,
@@ -383,6 +391,8 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       case _MessageAction.delete:
         await _confirmDelete(message);
+      case _MessageAction.translate:
+        await _translateMessage(message);
     }
   }
 
@@ -427,6 +437,141 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ---------------------------------------------------------------------
+  // Translation (text + voice messages)
+  // ---------------------------------------------------------------------
+
+  /// Asks the user for a target language, translates [message], and shows the
+  /// result. Voice messages are transcribed first (via the AI edge function).
+  Future<void> _translateMessage(ChatMessage message) async {
+    final Language? target = await showDialog<Language>(
+      context: context,
+      builder: (BuildContext context) => const _LanguagePickerDialog(),
+    );
+    if (target == null || !mounted) return;
+    final ChatController? chat = _chat;
+    if (chat == null) return;
+
+    final bool isVoice = message.type == MessageType.voice;
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) =>
+          _TranslatingDialog(language: target.name),
+    ));
+
+    try {
+      if (isVoice) {
+        final String? url = message.mediaUrl;
+        if (url == null) return;
+        final VoiceTranslationResult result = await chat.chatAi.translateVoice(
+          audioUrl: url,
+          targetLanguage: target.name,
+        );
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        _showTranslationResult(
+          original: result.transcript,
+          translated: result.translation,
+          languageName: target.name,
+          isVoice: true,
+        );
+      } else {
+        final String translated = await chat.chatAi.translateText(
+          text: message.text,
+          targetLanguage: target.name,
+        );
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        _showTranslationResult(
+          original: message.text,
+          translated: translated,
+          languageName: target.name,
+          isVoice: false,
+        );
+      }
+    } on ChatAiException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } on Exception {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not translate that message. Try again.'),
+        ),
+      );
+    }
+  }
+
+  void _showTranslationResult({
+    required String original,
+    required String translated,
+    required String languageName,
+    required bool isVoice,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        final ThemeData theme = Theme.of(context);
+        final ColorScheme scheme = theme.colorScheme;
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(Icons.translate_rounded, color: scheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isVoice
+                            ? 'Translated voice to $languageName'
+                            : 'Translated to $languageName',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(translated, style: theme.textTheme.bodyLarge),
+                if (original.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Text(
+                    isVoice ? 'Original transcript' : 'Original',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    original,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------
 
@@ -449,6 +594,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 replyToLabel: _replyToLabel(_replyTo),
                 replyToSender: _replyToSender(_replyTo),
                 onReplyCleared: () => setState(() => _replyTo = null),
+                voiceEffectsEnabled: _isAdmin,
               ),
             ],
           ),
@@ -477,6 +623,9 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     return _peerName;
   }
+
+  /// Whether the signed-in user is an admin (shows the voice changer).
+  bool get _isAdmin => ProfileScope.of(context).profile?.isAdmin ?? false;
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     final WhatsAppStyle style = WhatsAppStyle.of(context);
@@ -760,6 +909,108 @@ class _ChatScreenState extends State<ChatScreen> {
             _buildEncryptionNotice(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Searchable language picker over [worldLanguages].
+class _LanguagePickerDialog extends StatefulWidget {
+  const _LanguagePickerDialog();
+
+  @override
+  State<_LanguagePickerDialog> createState() => _LanguagePickerDialogState();
+}
+
+class _LanguagePickerDialogState extends State<_LanguagePickerDialog> {
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<Language> get _results {
+    final String query = _query.trim().toLowerCase();
+    if (query.isEmpty) return worldLanguages;
+    return worldLanguages
+        .where((Language language) =>
+            language.name.toLowerCase().contains(query))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Text(
+              'Translate to',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _search,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Search languages',
+                prefixIcon: const Icon(Icons.search_rounded),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+              onChanged: (String value) => setState(() => _query = value),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _results.length,
+              itemBuilder: (BuildContext context, int index) {
+                final Language language = _results[index];
+                return ListTile(
+                  dense: true,
+                  title: Text(language.name),
+                  onTap: () => Navigator.of(context).pop(language),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Modal shown while a translation is in flight.
+class _TranslatingDialog extends StatelessWidget {
+  const _TranslatingDialog({required this.language});
+
+  final String language;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      content: Row(
+        children: <Widget>[
+          const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          const SizedBox(width: 20),
+          Expanded(child: Text('Translating into $language\u2026')),
+        ],
       ),
     );
   }
