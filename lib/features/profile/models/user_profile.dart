@@ -12,6 +12,8 @@ class UserProfile {
     this.photoURL,
     this.isOnline = false,
     this.isAdmin = false,
+    this.preferredLang,
+    this.autoTranslate = true,
     this.lastSeen,
     this.createdAt,
     this.updatedAt,
@@ -39,6 +41,17 @@ class UserProfile {
   /// Whether this user may manage app configuration (AI provider keys).
   final bool isAdmin;
 
+  /// ISO 639-1-ish language code (e.g. `en`, `fr`, `zh-CN`) the user prefers
+  /// to read and write in. Incoming messages are auto-translated into this
+  /// language; sent messages are stamped with it so the peer knows whether a
+  /// translation is needed. Null until the user picks one (the app seeds it
+  /// from the device locale).
+  final String? preferredLang;
+
+  /// Whether the app should auto-translate incoming messages written in a
+  /// different language into [preferredLang]. Defaults to on.
+  final bool autoTranslate;
+
   final DateTime? lastSeen;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -55,6 +68,8 @@ class UserProfile {
     String? photoURL,
     bool? isOnline,
     bool? isAdmin,
+    String? preferredLang,
+    bool? autoTranslate,
     DateTime? lastSeen,
     DateTime? updatedAt,
   }) {
@@ -66,6 +81,8 @@ class UserProfile {
       photoURL: photoURL ?? this.photoURL,
       isOnline: isOnline ?? this.isOnline,
       isAdmin: isAdmin ?? this.isAdmin,
+      preferredLang: preferredLang ?? this.preferredLang,
+      autoTranslate: autoTranslate ?? this.autoTranslate,
       lastSeen: lastSeen ?? this.lastSeen,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -84,6 +101,8 @@ class UserProfile {
       photoURL: null,
       isOnline: isOnline,
       isAdmin: isAdmin,
+      preferredLang: preferredLang,
+      autoTranslate: autoTranslate,
       lastSeen: lastSeen,
       createdAt: createdAt,
       updatedAt: updatedAt,

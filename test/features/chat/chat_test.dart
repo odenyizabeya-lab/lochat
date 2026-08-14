@@ -7,7 +7,7 @@ import 'package:lotext/features/profile/models/user_profile.dart';
 import 'package:lotext/shared/widgets/lotext_button.dart';
 
 import '../../fakes.dart';
-import '../../widget_test.dart' show pumpApp;
+import '../../widget_test.dart' show pumpApp, openToolsTab;
 
 UserProfile me() => const UserProfile(
       uid: 'me-uid',
@@ -49,8 +49,9 @@ void main() {
     return (profileRepo, chatRepo);
   }
 
-  /// Navigates: Contacts tab -> Sarah's public profile -> Message.
+  /// Navigates: Tools -> Contacts -> Sarah's public profile -> Message.
   Future<void> openChatWithSarah(WidgetTester tester) async {
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sarah Connor'));
@@ -139,7 +140,8 @@ void main() {
 
     expect(find.text('Sarah Connor'), findsOneWidget);
     expect(find.text('Hey Me'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    // Unread badge on the conversation tile (and on the Chats tab).
+    expect(find.text('1'), findsWidgets);
   });
 
   testWidgets('tapping a conversation from the chats tab opens it',
@@ -180,6 +182,7 @@ void main() {
     await pumpChatApp(tester, addSarahAsContact: false);
 
     // Contacts tab is empty -> Add contact screen -> search by username.
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(LoTextButton, 'Add contact'));
@@ -209,7 +212,7 @@ void main() {
         chatRepo.conversationIdFor('me-uid', 'them-uid');
 
     await openChatWithSarah(tester);
-    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('@sarah \u00b7 Online'), findsOneWidget);
 
     // Sarah starts typing -> app bar subtitle switches to "typing…".
     await chatRepo.setTyping(
@@ -217,7 +220,7 @@ void main() {
       uid: 'them-uid',
     );
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('typing\u2026'), findsOneWidget);
+    expect(find.text('@sarah \u00b7 typing\u2026'), findsOneWidget);
     expect(find.text('Online'), findsNothing);
   });
 
@@ -233,7 +236,7 @@ void main() {
     await chatRepo.setTyping(conversationId: conversationId, uid: 'me-uid');
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('typing\u2026'), findsNothing);
-    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('@sarah \u00b7 Online'), findsOneWidget);
   });
 
   testWidgets('chats tab preview shows typing for the peer and hides it when '

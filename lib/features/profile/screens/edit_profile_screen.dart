@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/utils/validators.dart';
+import '../../../shared/language_picker_dialog.dart';
+import '../../../shared/languages.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 import '../../../shared/widgets/lotext_button.dart';
 import '../../../shared/widgets/lotext_text_field.dart';
@@ -124,6 +126,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
     } finally {
       if (mounted) setState(() => _photoBusy = false);
+    }
+  }
+
+  Future<void> _pickPreferredLanguage() async {
+    final ProfileController controller = ProfileScope.of(context);
+    final Language? lang = await showLanguagePicker(
+      context,
+      title: 'Preferred language',
+    );
+    if (lang == null) return;
+    try {
+      await controller.setPreferredLanguage(lang.code);
+      if (!mounted) return;
+      AppSnackbars.showInfo(context, 'Preferred language updated');
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackbars.showError(
+        context,
+        'Could not save your language. Please try again.',
+      );
+    }
+  }
+
+  Future<void> _toggleAutoTranslate(bool value) async {
+    final ProfileController controller = ProfileScope.of(context);
+    try {
+      await controller.setAutoTranslate(value);
+      if (!mounted) return;
+      AppSnackbars.showInfo(
+        context,
+        value ? 'Auto-translate is on' : 'Auto-translate is off',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackbars.showError(
+        context,
+        'Could not update that setting. Please try again.',
+      );
     }
   }
 
@@ -277,6 +317,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
+                    const _LanguageSectionHeader(),
+                    const SizedBox(height: 4),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.language_rounded),
+                      title: const Text('Preferred language'),
+                      subtitle: Text(
+                        profile?.preferredLang == null ||
+                                profile!.preferredLang!.isEmpty
+                            ? 'Use my phone language'
+                            : languageNameFor(profile.preferredLang!),
+                      ),
+                      onTap: _pickPreferredLanguage,
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.auto_awesome_rounded),
+                      title: const Text('Auto-translate messages'),
+                      subtitle: const Text(
+                        'Translate messages in other languages as they arrive.',
+                      ),
+                      value: profile?.autoTranslate ?? true,
+                      onChanged: (bool value) =>
+                          unawaited(_toggleAutoTranslate(value)),
+                    ),
+                    const SizedBox(height: 24),
                     LoTextButton(
                       label: 'Save changes',
                       isExpanded: true,
@@ -290,6 +356,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Section label used to group translation-related settings in the editor.
+class _LanguageSectionHeader extends StatelessWidget {
+  const _LanguageSectionHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      children: <Widget>[
+        Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.5))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'Translation',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.5))),
+      ],
     );
   }
 }

@@ -17,6 +17,7 @@ import 'models/chat_message.dart';
 import 'models/conversation.dart';
 import 'widgets/chat_date_header.dart';
 import 'widgets/composer_bar.dart';
+import '../../shared/language_picker_dialog.dart';
 import 'widgets/media_message_bubble.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/voice_message_bubble.dart';
@@ -45,6 +46,8 @@ class ChatScreen extends StatefulWidget {
 }
 
 enum _MessageAction { reply, copy, delete, translate }
+
+enum _ChatMenuAction { profile, autoTranslate }
 
 class _ChatScreenState extends State<ChatScreen> {
   ChatController? _chat;
@@ -84,6 +87,33 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Message the user is currently replying to.
   ChatMessage? _replyTo;
 
+  // ----- Auto-translate (incoming foreign-language messages) -----
+
+  /// Message-id-keyed cache of device-side translations. Keys use the target
+  /// language name so switching language re-translates instead of showing a
+  /// stale translation.
+  final Map<String, String> _translationCache = <String, String>{};
+
+  /// Message IDs currently being translated (avoid duplicate in-flight calls).
+  final Set<String> _translationPending = <String>{};
+
+  /// Message IDs where the user expanded "See original".
+  final Set<String> _translationExpanded = <String>{};
+
+  /// Per-chat override; null means "follow the profile setting".
+  bool? _chatAutoTranslate;
+
+  /// The signed-in user's preferred language code and master switch, read
+  /// from the profile (kept up to date via [didChangeDependencies]).
+  String _myPreferredLang = '';
+  bool _profileAutoTranslate = true;
+
+  bool get _autoTranslateEnabled => _chatAutoTranslate ?? _profileAutoTranslate;
+
+  String get _targetLangName => languageNameFor(_myPreferredLang);
+
+  String _translationKey(String messageId) => '$messageId|$_targetLangName';
+
   // Search-in-chat state.
   bool _searching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -93,6 +123,24 @@ class _ChatScreenState extends State<ChatScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final ChatController chat = ChatScope.of(context);
+
+    // Keep the auto-translate target in sync with the profile (this re-runs
+    // whenever the profile stream notifies, e.g. the user edits their
+    // preferred language or flips the master switch).
+    final UserProfile? profile = ProfileScope.maybeOf(context)?.profile;
+    final String preferredLang = profile?.preferredLang ?? '';
+    final bool profileAutoTranslate = profile?.autoTranslate ?? true;
+    final bool langChanged = preferredLang != _myPreferredLang;
+    final bool switchChanged =
+        profileAutoTranslate != _profileAutoTranslate;
+    _myPreferredLang = preferredLang;
+    _profileAutoTranslate = profileAutoTranslate;
+    if (langChanged) {
+      // Cached translations target the old language: drop them.
+      _translationCache.clear();
+      _translationExpanded.clear();
+    }
+
     if (!_subscribed) {
       _subscribed = true;
       _chat = chat;
@@ -107,6 +155,10 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() {});
         }
       });
+    } else if (langChanged || switchChanged) {
+      // Language or the master switch changed while the chat is open:
+      // re-evaluate the messages already on screen.
+      unawaited(_translatePendingOnEnable());
     }
   }
 
@@ -120,6 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _loading = false;
             });
             _acknowledgeIncoming(messages);
+            _maybeAutoTranslate(messages);
             _scrollToBottomIfFollowing();
           },
           onError: (Object e) {
@@ -160,6 +213,94 @@ class _ChatScreenState extends State<ChatScreen> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Auto-translate (incoming foreign-language messages)
+  // ---------------------------------------------------------------------
+
+  /// Queues device-side translations for incoming text messages whose stamped
+  /// language differs from the signed-in user's preferred language. The stamp
+  /// means no AI language detection is needed, so this costs nothing for
+  /// same-language messages.
+  void _maybeAutoTranslate(List<ChatMessage> messages) {
+    final ChatController? chat = _chat;
+    final String? myUid = _myUid;
+    if (chat == null || myUid == null) return;
+    if (!_autoTranslateEnabled) return;
+    final String myLang = _myPreferredLang;
+    if (myLang.isEmpty) return;
+
+    final List<ChatMessage> toTranslate = <ChatMessage>[];
+    for (final ChatMessage message in messages) {
+      if (message.senderUid == myUid) continue;
+      if (message.type != MessageType.text) continue;
+      if (message.text.trim().isEmpty) continue;
+      if (message.hasOriginal) continue; // already translated by the sender
+      final String? senderLang = message.senderLang;
+      if (senderLang == null || senderLang.isEmpty) continue;
+      if (senderLang.toLowerCase() == myLang.toLowerCase()) continue;
+      if (_translationCache.containsKey(_translationKey(message.id))) continue;
+      if (_translationPending.contains(message.id)) continue;
+      toTranslate.add(message);
+    }
+    if (toTranslate.isEmpty) return;
+    unawaited(_translateMessages(toTranslate));
+  }
+
+  Future<void> _translateMessages(List<ChatMessage> messages) async {
+    final ChatController? chat = _chat;
+    if (chat == null) return;
+    final String target = _targetLangName;
+    for (final ChatMessage message in messages) {
+      if (_translationPending.contains(message.id)) continue;
+      _translationPending.add(message.id);
+      try {
+        final TextTranslationResult result = await chat.chatAi.translateText(
+          text: message.text,
+          targetLanguage: target,
+        );
+        if (!mounted) return;
+        if (result.translation.trim().isNotEmpty) {
+          setState(() {
+            _translationCache[_translationKey(message.id)] =
+                result.translation;
+          });
+        }
+      } on Exception {
+        // Leave the message as written; the long-press Translate action is
+        // the manual fallback.
+      } finally {
+        _translationPending.remove(message.id);
+      }
+    }
+  }
+
+  /// Fetches translations for messages already on screen (used when the user
+  /// turns auto-translate back on).
+  Future<void> _translatePendingOnEnable() async {
+    if (!_autoTranslateEnabled) return;
+    final ChatController? chat = _chat;
+    if (chat == null) return;
+    final List<ChatMessage> messages = List<ChatMessage>.of(_messages);
+    // Small delay so the toggle tap registers before the AI calls stream in.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    _maybeAutoTranslate(messages);
+  }
+
+  /// Whether the peer's [message] should currently render its (cached)
+  /// translation instead of the original wording.
+  bool _showsTranslation(ChatMessage message) {
+    if (message.hasOriginal) return false;
+    if (!_autoTranslateEnabled) return false;
+    if (message.senderUid == _myUid) return false;
+    final String? senderLang = message.senderLang;
+    if (senderLang == null || senderLang.isEmpty) return false;
+    if (_myPreferredLang.isEmpty) return false;
+    if (senderLang.toLowerCase() == _myPreferredLang.toLowerCase()) {
+      return false;
+    }
+    return _translationCache.containsKey(_translationKey(message.id));
   }
 
   void _onScroll() {
@@ -305,6 +446,19 @@ class _ChatScreenState extends State<ChatScreen> {
           message: message,
           fromMe: fromMe,
           onLongPress: () => _showMessageActions(message, fromMe),
+          autoTranslation:
+              _showsTranslation(message) && !_translationExpanded.contains(message.id)
+                  ? _translationCache[_translationKey(message.id)]
+                  : null,
+          autoTranslationLabel: message.senderLang == null
+              ? null
+              : 'Translated from ${languageNameFor(message.senderLang)}',
+          showOriginal: _translationExpanded.contains(message.id),
+          onToggleOriginal: () => setState(() {
+            if (!_translationExpanded.add(message.id)) {
+              _translationExpanded.remove(message.id);
+            }
+          }),
         ),
       MessageType.image => ImageMessageBubble(
           message: message,
@@ -443,9 +597,9 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Asks the user for a target language, translates [message], and shows the
   /// result. Voice messages are transcribed first (via the AI edge function).
   Future<void> _translateMessage(ChatMessage message) async {
-    final Language? target = await showDialog<Language>(
-      context: context,
-      builder: (BuildContext context) => const _LanguagePickerDialog(),
+    final Language? target = await showLanguagePicker(
+      context,
+      title: 'Translate to',
     );
     if (target == null || !mounted) return;
     final ChatController? chat = _chat;
@@ -476,7 +630,7 @@ class _ChatScreenState extends State<ChatScreen> {
           isVoice: true,
         );
       } else {
-        final String translated = await chat.chatAi.translateText(
+        final TextTranslationResult result = await chat.chatAi.translateText(
           text: message.text,
           targetLanguage: target.name,
         );
@@ -484,7 +638,7 @@ class _ChatScreenState extends State<ChatScreen> {
         Navigator.of(context).pop();
         _showTranslationResult(
           original: message.text,
-          translated: translated,
+          translated: result.translation,
           languageName: target.name,
           isVoice: false,
         );
@@ -595,6 +749,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 replyToSender: _replyToSender(_replyTo),
                 onReplyCleared: () => setState(() => _replyTo = null),
                 voiceEffectsEnabled: _isAdmin,
+                myLanguageCode: _myPreferredLang.isEmpty ? null : _myPreferredLang,
               ),
             ],
           ),
@@ -689,100 +844,167 @@ class _ChatScreenState extends State<ChatScreen> {
           _currentConversation = conversation;
           final bool peerTyping = conversation?.isTypingFrom(_myUid ?? '') ?? false;
 
-          return AppBar(
-            backgroundColor: style.header,
-            foregroundColor: Colors.white,
-            titleSpacing: 0,
-            title: Row(
-              children: <Widget>[
-                UserAvatar(
-                  name: displayName,
-                  photoURL: conversation?.peer.photoURL,
-                  size: 38,
-                  backgroundColor: const Color(0xFF6A7A85),
-                  foregroundColor: Colors.white,
+          return Container(
+            decoration: BoxDecoration(
+              color: style.header,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.black.withValues(alpha: 0.12),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        _presenceLine(conversation),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: peerTyping
-                              ? const Color(0xFFA7F3D0)
-                              : style.onHeaderSub,
-                          fontSize: 12.5,
-                          fontStyle: peerTyping
-                              ? FontStyle.italic
-                              : FontStyle.normal,
-                          fontWeight: peerTyping
-                              ? FontWeight.w600
-                              : FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-            actions: <Widget>[
-              IconButton(
-                tooltip: 'Search',
-                icon: const Icon(Icons.search_rounded, color: Colors.white),
-                onPressed: () => setState(() => _searching = true),
-              ),
-              IconButton(
-                tooltip: 'Video call',
-                icon: const Icon(Icons.videocam_rounded, color: Colors.white),
-                onPressed: conversation == null
-                    ? null
-                    : () => _startCall(conversation!.peer.uid, CallType.video),
-              ),
-              IconButton(
-                tooltip: 'Voice call',
-                icon: const Icon(Icons.call_rounded, color: Colors.white),
-                onPressed: conversation == null
-                    ? null
-                    : () => _startCall(conversation!.peer.uid, CallType.audio),
-              ),
-              IconButton(
-                tooltip: 'View profile',
-                icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
-                onPressed: conversation == null
+            child: AppBar(
+              backgroundColor: style.header,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              titleSpacing: 0,
+              title: InkWell(
+                onTap: conversation == null
                     ? null
                     : () => context.push(
                         AppRoutes.publicProfileFor(conversation!.peer.uid)),
+                borderRadius: BorderRadius.circular(6),
+                child: Row(
+                  children: <Widget>[
+                    UserAvatar(
+                      name: displayName,
+                      photoURL: conversation?.peer.photoURL,
+                      size: 38,
+                      backgroundColor: const Color(0xFF6A7A85),
+                      foregroundColor: Colors.white,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            _presenceLine(conversation),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: peerTyping
+                                  ? const Color(0xFFA7F3D0)
+                                  : style.onHeaderSub,
+                              fontSize: 12.5,
+                              fontStyle: peerTyping
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                              fontWeight: peerTyping
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
+              actions: <Widget>[
+                IconButton(
+                  tooltip: 'Video call',
+                  icon: const Icon(Icons.videocam_rounded, color: Colors.white),
+                  onPressed: conversation == null
+                      ? null
+                      : () => _startCall(conversation!.peer.uid, CallType.video),
+                ),
+                IconButton(
+                  tooltip: 'Voice call',
+                  icon: const Icon(Icons.call_rounded, color: Colors.white),
+                  onPressed: conversation == null
+                      ? null
+                      : () => _startCall(conversation!.peer.uid, CallType.audio),
+                ),
+                IconButton(
+                  tooltip: 'Search',
+                  icon: const Icon(Icons.search_rounded, color: Colors.white),
+                  onPressed: () => setState(() => _searching = true),
+                ),
+                PopupMenuButton<_ChatMenuAction>(
+                  tooltip: 'More options',
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                  onSelected: _onMenuSelected,
+                  itemBuilder: (BuildContext context) =>
+                      <PopupMenuEntry<_ChatMenuAction>>[
+                    PopupMenuItem<_ChatMenuAction>(
+                      value: _ChatMenuAction.profile,
+                      child: const Row(
+                        children: <Widget>[
+                          Icon(Icons.person_outline_rounded),
+                          SizedBox(width: 12),
+                          Text('View profile'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem<_ChatMenuAction>(
+                      value: _ChatMenuAction.autoTranslate,
+                      child: Row(
+                        children: <Widget>[
+                          const Icon(Icons.translate_rounded),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _autoTranslateEnabled
+                                  ? 'Auto-translate: on'
+                                  : 'Auto-translate: off',
+                            ),
+                          ),
+                          if (_autoTranslateEnabled)
+                            const Icon(Icons.check_rounded),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           );
         },
       ),
     );
   }
 
+  void _onMenuSelected(_ChatMenuAction action) {
+    switch (action) {
+      case _ChatMenuAction.profile:
+        final Conversation? conversation = _currentConversation;
+        if (conversation == null) return;
+        context.push(AppRoutes.publicProfileFor(conversation.peer.uid));
+      case _ChatMenuAction.autoTranslate:
+        setState(() {
+          final bool next = !_autoTranslateEnabled;
+          // Back to "follow my settings" when it matches the profile.
+          _chatAutoTranslate = next == _profileAutoTranslate ? null : next;
+          if (next) {
+            unawaited(_translatePendingOnEnable());
+          }
+        });
+    }
+  }
+
   String _presenceLine(Conversation? conversation) {
     if (conversation == null) return '';
-    if (conversation.isTypingFrom(_myUid ?? '')) return 'typing\u2026';
     final UserProfile peer = conversation.peer;
-    return peer.isOnline
-        ? 'Online'
-        : formatLastSeen(peer.lastSeen);
+    final String handle = '@${peer.username}';
+    if (conversation.isTypingFrom(_myUid ?? '')) {
+      return '$handle \u00b7 typing\u2026';
+    }
+    final String presence =
+        peer.isOnline ? 'Online' : formatLastSeen(peer.lastSeen);
+    return '$handle \u00b7 $presence';
   }
 
   void _startCall(String peerUid, CallType type) {
@@ -909,84 +1131,6 @@ class _ChatScreenState extends State<ChatScreen> {
             _buildEncryptionNotice(),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Searchable language picker over [worldLanguages].
-class _LanguagePickerDialog extends StatefulWidget {
-  const _LanguagePickerDialog();
-
-  @override
-  State<_LanguagePickerDialog> createState() => _LanguagePickerDialogState();
-}
-
-class _LanguagePickerDialogState extends State<_LanguagePickerDialog> {
-  final TextEditingController _search = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  List<Language> get _results {
-    final String query = _query.trim().toLowerCase();
-    if (query.isEmpty) return worldLanguages;
-    return worldLanguages
-        .where((Language language) =>
-            language.name.toLowerCase().contains(query))
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text(
-              'Translate to',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _search,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'Search languages',
-                prefixIcon: const Icon(Icons.search_rounded),
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ),
-              onChanged: (String value) => setState(() => _query = value),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _results.length,
-              itemBuilder: (BuildContext context, int index) {
-                final Language language = _results[index];
-                return ListTile(
-                  dense: true,
-                  title: Text(language.name),
-                  onTap: () => Navigator.of(context).pop(language),
-                );
-              },
-            ),
-          ),
-        ],
       ),
     );
   }

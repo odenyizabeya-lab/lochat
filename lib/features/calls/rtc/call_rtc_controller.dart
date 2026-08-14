@@ -44,6 +44,9 @@ abstract interface class CallRtcController {
 
   bool get cameraEnabled;
 
+  /// Switches the local camera between front and rear (video calls only).
+  Future<void> switchCamera();
+
   /// Preview of the local camera, or null on audio calls.
   Widget? get localView;
 

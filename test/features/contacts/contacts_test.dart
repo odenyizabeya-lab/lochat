@@ -6,7 +6,7 @@ import 'package:lotext/features/profile/models/user_profile.dart';
 import 'package:lotext/shared/widgets/lotext_button.dart';
 
 import '../../fakes.dart';
-import '../../widget_test.dart' show pumpApp;
+import '../../widget_test.dart' show pumpApp, openToolsTab;
 
 UserProfile me() => const UserProfile(
       uid: 'me-uid',
@@ -59,6 +59,7 @@ void main() {
       profileRepository: repo,
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
 
@@ -74,6 +75,7 @@ void main() {
       (WidgetTester tester) async {
     await pumpWithContacts(tester);
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
 
@@ -91,6 +93,7 @@ void main() {
       (WidgetTester tester) async {
     await pumpWithContacts(tester);
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sarah Connor'));
@@ -142,6 +145,7 @@ void main() {
     // The Contacts tab now lists her.
     await tester.pageBack();
     await tester.pumpAndSettle();
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
     expect(find.text('Sarah Connor'), findsOneWidget);
@@ -162,6 +166,7 @@ void main() {
       profileRepository: repo,
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Contacts'));
     await tester.pumpAndSettle();
     expect(find.text('Sarah Connor'), findsOneWidget);

@@ -44,6 +44,19 @@ abstract interface class ProfileRepository {
     required String displayName,
   });
 
+  /// Sets the user's preferred language code (e.g. `en`, `fr`, `zh-CN`).
+  /// Incoming messages are auto-translated into this language.
+  Future<void> setPreferredLanguage({
+    required String uid,
+    required String code,
+  });
+
+  /// Turns auto-translation of incoming foreign-language messages on/off.
+  Future<void> setAutoTranslate({
+    required String uid,
+    required bool enabled,
+  });
+
   /// Uploads photo bytes for the user and returns the download URL.
   Future<String> uploadProfilePhoto({
     required String uid,

@@ -67,6 +67,10 @@ class CallSessionController extends ChangeNotifier {
       await _listenForAnswer(callId);
       await _exchangeCandidates(callId);
     } catch (e) {
+      // The call document already exists at this point; if setup failed before
+      // the callee answered (e.g. camera/mic permission denied), end it so the
+      // peer's ring does not hang until the 45s timeout.
+      await _cleanupAbandonedOutgoing();
       _markFailed(e);
     }
   }
@@ -161,8 +165,25 @@ class CallSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> switchCamera() async {
+    await _rtc?.switchCamera();
+    notifyListeners();
+  }
+
   bool get muted => _rtc?.muted ?? false;
   bool get cameraEnabled => _rtc?.cameraEnabled ?? true;
+
+  /// Ends a call that failed to start while still ringing so the peer's ring
+  /// screen is dismissed instead of waiting out the timeout.
+  Future<void> _cleanupAbandonedOutgoing() async {
+    final Call? call = _call;
+    if (call == null || call.status != CallStatus.ringing) return;
+    try {
+      await signaling.markMissed(call.id);
+    } on Exception {
+      // Ignored; the call document watch reconciles if the write fails.
+    }
+  }
 
   Future<void> _openRtc() async {
     if (_rtc != null) return;

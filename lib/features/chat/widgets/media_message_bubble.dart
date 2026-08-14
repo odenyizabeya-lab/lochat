@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -40,32 +41,31 @@ class MediaImage extends StatelessWidget {
     );
     return ClipRRect(
       borderRadius: borderRadius ?? BorderRadius.zero,
-      child: Image.network(
-        url,
+      child: CachedNetworkImage(
+        imageUrl: url,
         width: width,
         height: height,
         fit: fit,
-        errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
+        // Only ever decode enough pixels for the bubble size; full-res photos
+        // would otherwise be decoded into memory on every render.
+        memCacheWidth: _pixelSize(context, width),
+        memCacheHeight: _pixelSize(context, height),
+        placeholder: (BuildContext context, String url) => Container(
+          width: width,
+          height: height,
+          color: scheme.surfaceContainerHighest,
+          alignment: Alignment.center,
+          child: const CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+        errorWidget: (BuildContext context, String url, Object error) =>
             fallback,
-        loadingBuilder: (BuildContext context, Widget child,
-            ImageChunkEvent? loadingProgress) {
-          if (loadingProgress == null) return child;
-          return Container(
-            width: width,
-            height: height,
-            color: scheme.surfaceContainerHighest,
-            alignment: Alignment.center,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.5,
-              value: loadingProgress.expectedTotalBytes != null
-                  ? loadingProgress.cumulativeBytesLoaded /
-                      loadingProgress.expectedTotalBytes!
-                  : null,
-            ),
-          );
-        },
       ),
     );
+  }
+
+  static int? _pixelSize(BuildContext context, double? size) {
+    if (size == null) return null;
+    return (size * MediaQuery.devicePixelRatioOf(context)).round();
   }
 }
 

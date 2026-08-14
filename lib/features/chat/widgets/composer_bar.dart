@@ -6,13 +6,16 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/utils/time_utils.dart';
+import '../../../../shared/languages.dart';
 import '../chat_controller.dart';
+import '../data/chat_ai_service.dart';
 import '../data/chat_repository.dart';
 import '../media/chat_media_picker.dart';
 import '../media/voice_recorder.dart';
 import '../models/chat_message.dart';
 import '../models/voice_effect.dart';
 import 'emoji_picker.dart';
+import '../../../shared/language_picker_dialog.dart';
 import 'reply_preview.dart';
 
 /// The chat composer: text input, photo/video attachment (with an upload
@@ -33,6 +36,7 @@ class ChatComposer extends StatefulWidget {
     this.replyToSender,
     this.onReplyCleared,
     this.voiceEffectsEnabled = false,
+    this.myLanguageCode,
   });
 
   final ChatController chat;
@@ -53,6 +57,11 @@ class ChatComposer extends StatefulWidget {
   /// When true (admins) a voice-changer picker is shown next to the mic.
   final bool voiceEffectsEnabled;
 
+  /// The signed-in user's preferred language code (from their profile). Sent
+  /// messages are stamped with it so the peer can decide whether to
+  /// auto-translate. Null when unknown (e.g. tests without a profile).
+  final String? myLanguageCode;
+
   @override
   State<ChatComposer> createState() => _ChatComposerState();
 }
@@ -61,7 +70,14 @@ enum _PickKind { image, video }
 
 class _ChatComposerState extends State<ChatComposer> {
   final TextEditingController _input = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
   bool _canSend = false;
+
+  // Emoji panel state (WhatsApp-style docked panel, toggles with the system
+  // keyboard). Recents and skin tone persist while the chat is open.
+  bool _emojiOpen = false;
+  String _skinTone = '';
+  final List<String> _recentEmojis = <String>[];
 
   // Typing indicator: throttled so the peer receives at most one signal per
   // ~3s while the user is typing. The stamp expires server-side after 8s, so
@@ -84,8 +100,23 @@ class _ChatComposerState extends State<ChatComposer> {
   VoiceEffectPreset? _voiceEffect;
 
   @override
+  void initState() {
+    super.initState();
+    _inputFocus.addListener(_onInputFocusChanged);
+  }
+
+  /// Tapping into the text field closes the emoji panel and brings the system
+  /// keyboard back (same behaviour as WhatsApp).
+  void _onInputFocusChanged() {
+    if (_inputFocus.hasFocus && _emojiOpen && mounted) {
+      setState(() => _emojiOpen = false);
+    }
+  }
+
+  @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     _progressSub?.cancel();
     unawaited(_uploadTask?.cancel());
     _recordTimer?.cancel();
@@ -121,53 +152,265 @@ class _ChatComposerState extends State<ChatComposer> {
         replyToText:
             replyTo?.type == MessageType.text ? replyTo?.text : null,
         replyToSender: widget.replyToSender,
+        senderLang: widget.myLanguageCode,
       ),
     );
     widget.onReplyCleared?.call();
   }
 
+  /// Inserts [emoji] at the current cursor position and tracks it as a recent.
+  void _insertEmoji(String emoji) {
+    final TextEditingValue value = _input.value;
+    final int start = value.selection.baseOffset;
+    final int end = value.selection.extentOffset;
+    final int from =
+        start >= 0 && end >= 0 && start <= end ? start : value.text.length;
+    final int to =
+        end >= 0 && end <= value.text.length ? end : value.text.length;
+    final String text = value.text.replaceRange(from, to, emoji);
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: from + emoji.length),
+    );
+    _onInputChanged();
+    setState(() {
+      _recentEmojis.remove(emoji);
+      _recentEmojis.insert(0, emoji);
+      if (_recentEmojis.length > 30) {
+        _recentEmojis.removeRange(30, _recentEmojis.length);
+      }
+    });
+  }
+
+  // ----- Translate before sending -----
+
+  /// Translates the draft into a language the user picks, then lets them
+  /// review the translation and send it (with the original kept for a
+  /// "See original" toggle on the peer's side).
+  Future<void> _translateDraft() async {
+    final String text = _input.text.trim();
+    if (text.isEmpty) return;
+    final Language? target = await showLanguagePicker(
+      context,
+      title: 'Translate to',
+    );
+    if (target == null || !mounted) return;
+
+    final ChatAiService chatAi = widget.chat.chatAi;
+    final TextTranslationResult result;
+    try {
+      result = await chatAi.translateText(
+        text: text,
+        targetLanguage: target.name,
+      );
+    } on ChatAiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+      return;
+    } on Exception {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not translate that message. Try again.'),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await _showTranslationPreview(
+      original: text,
+      translated: result.translation,
+      targetName: target.name,
+      sourceLanguage: result.sourceLanguage,
+    );
+  }
+
+  Future<void> _showTranslationPreview({
+    required String original,
+    required String translated,
+    required String targetName,
+    required String sourceLanguage,
+  }) async {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool? send = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(Icons.translate_rounded, color: scheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Translated to $targetName',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(translated, style: theme.textTheme.bodyLarge),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Text(
+                  'Original',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  original,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    icon: const Icon(Icons.send_rounded),
+                    label: const Text('Send translation'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (send != true || !mounted) return;
+
+    final ChatMessage? replyTo = widget.replyTo;
+    _input.clear();
+    _onInputChanged();
+    unawaited(
+      widget.chat.sendMessage(
+        conversationId: widget.conversationId,
+        text: translated,
+        replyToId: replyTo?.id,
+        replyToType: replyTo?.type.name,
+        replyToText:
+            replyTo?.type == MessageType.text ? replyTo?.text : null,
+        replyToSender: widget.replyToSender,
+        senderLang: widget.myLanguageCode,
+        originalText: original,
+        sourceLang: sourceLanguage.isEmpty ? null : sourceLanguage,
+      ),
+    );
+    widget.onReplyCleared?.call();
+  }
+
+  /// WhatsApp-style attachment tray: circular tiles that open each media
+  /// source, instead of a plain list.
   Future<void> _showAttachSheet() async {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
     final _PickChoice? choice = await showModalBottomSheet<_PickChoice>(
       context: context,
       showDragHandle: true,
       builder: (BuildContext context) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ListTile(
-                leading: Icon(Icons.photo_library_outlined, color: scheme.primary),
-                title: const Text('Gallery photo'),
-                onTap: () => Navigator.of(context)
-                    .pop(_PickChoice(_PickKind.image, ChatMediaSource.gallery)),
-              ),
-              ListTile(
-                leading: Icon(Icons.photo_camera_outlined, color: scheme.primary),
-                title: const Text('Camera photo'),
-                onTap: () => Navigator.of(context)
-                    .pop(_PickChoice(_PickKind.image, ChatMediaSource.camera)),
-              ),
-              ListTile(
-                leading: Icon(Icons.video_library_outlined, color: scheme.primary),
-                title: const Text('Gallery video'),
-                onTap: () => Navigator.of(context)
-                    .pop(_PickChoice(_PickKind.video, ChatMediaSource.gallery)),
-              ),
-              ListTile(
-                leading: Icon(Icons.videocam_outlined, color: scheme.primary),
-                title: const Text('Camera video'),
-                onTap: () => Navigator.of(context)
-                    .pop(_PickChoice(_PickKind.video, ChatMediaSource.camera)),
-              ),
-              const SizedBox(height: 8),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    _attachTile(
+                      context,
+                      icon: Icons.photo_library_rounded,
+                      color: const Color(0xFF008069),
+                      label: 'Gallery',
+                      value: const _PickChoice(
+                          _PickKind.image, ChatMediaSource.gallery),
+                    ),
+                    _attachTile(
+                      context,
+                      icon: Icons.photo_camera_rounded,
+                      color: const Color(0xFFE5422B),
+                      label: 'Camera',
+                      value: const _PickChoice(
+                          _PickKind.image, ChatMediaSource.camera),
+                    ),
+                    _attachTile(
+                      context,
+                      icon: Icons.video_library_rounded,
+                      color: const Color(0xFF5B66C7),
+                      label: 'Video',
+                      value: const _PickChoice(
+                          _PickKind.video, ChatMediaSource.gallery),
+                    ),
+                    _attachTile(
+                      context,
+                      icon: Icons.videocam_rounded,
+                      color: const Color(0xFF4A9E5F),
+                      label: 'Camera video',
+                      value: const _PickChoice(
+                          _PickKind.video, ChatMediaSource.camera),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
     );
     if (choice == null || !mounted) return;
     await _pick(choice.kind, choice.source);
+  }
+
+  Widget _attachTile(
+    BuildContext context, {
+    required IconData icon,
+    required Color color,
+    required String label,
+    required _PickChoice value,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      onTap: () => Navigator.of(context).pop(value),
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _pick(_PickKind kind, ChatMediaSource source) async {
@@ -500,6 +743,7 @@ class _ChatComposerState extends State<ChatComposer> {
                     Expanded(
                       child: TextField(
                         controller: _input,
+                        focusNode: _inputFocus,
                         minLines: 1,
                         maxLines: 4,
                         textInputAction: TextInputAction.newline,
@@ -519,50 +763,67 @@ class _ChatComposerState extends State<ChatComposer> {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (_canSend) _buildTranslateButton(context),
                     if (widget.voiceEffectsEnabled)
                       _buildVoiceEffectButton(context),
                     _buildSendMicToggle(context),
                   ],
                 ),
               ),
+            if (_emojiOpen && !_recording)
+              _buildEmojiPanel(context),
           ],
         ),
       ),
     );
   }
 
-  /// Emoji toggle on the left of the input, like WhatsApp.
+  /// The docked WhatsApp-style emoji panel, shown in place of the keyboard.
+  Widget _buildEmojiPanel(BuildContext context) {
+    return EmojiPanel(
+      onInsert: _insertEmoji,
+      onKeyboard: () {
+        setState(() => _emojiOpen = false);
+        _inputFocus.requestFocus();
+      },
+      recents: _recentEmojis,
+      skinTone: _skinTone,
+      onSkinToneChanged: (String tone) => setState(() => _skinTone = tone),
+    );
+  }
+
+  /// Emoji toggle on the left of the input, like WhatsApp: taps switch between
+  /// the system keyboard and the emoji panel.
   Widget _buildEmojiButton(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool open = _emojiOpen;
     return IconButton(
-      tooltip: 'Emoji',
+      tooltip: open ? 'Show keyboard' : 'Emoji',
       onPressed: () {
-        FocusScope.of(context).unfocus();
-        EmojiPicker.show(
-          context,
-          onInsert: (String emoji) {
-            final TextEditingValue value = _input.value;
-            final int start = value.selection.baseOffset;
-            final int end = value.selection.extentOffset;
-            final String text = value.text.replaceRange(
-              start >= 0 && end >= 0 && start <= end ? start : value.text.length,
-              end >= 0 && end <= value.text.length ? end : value.text.length,
-              emoji,
-            );
-            _input.value = TextEditingValue(
-              text: text,
-              selection: TextSelection.collapsed(offset: start + emoji.length),
-            );
-            _onInputChanged();
-          },
-          onClose: () => Navigator.of(context).pop(),
-        );
+        if (open) {
+          setState(() => _emojiOpen = false);
+          _inputFocus.requestFocus();
+        } else {
+          _inputFocus.unfocus();
+          setState(() => _emojiOpen = true);
+        }
       },
       icon: Icon(
-        Icons.emoji_emotions_outlined,
+        open ? Icons.keyboard_rounded : Icons.emoji_emotions_outlined,
         color: scheme.primary,
         size: 26,
       ),
+    );
+  }
+
+  /// Translate-before-send: appears while there is draft text so the user can
+  /// translate it and send the translation (original kept in the message).
+  Widget _buildTranslateButton(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: 'Translate before sending',
+      onPressed: _uploading ? null : () => unawaited(_translateDraft()),
+      icon: Icon(Icons.translate_rounded, color: scheme.primary),
     );
   }
 

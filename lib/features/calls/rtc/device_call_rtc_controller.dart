@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'call_rtc_controller.dart';
 
@@ -39,6 +42,7 @@ class DeviceCallRtcController implements CallRtcController {
   @override
   Future<void> initialize() async {
     if (_peer != null) return;
+    await _ensurePermissions();
     final RTCPeerConnection peer = await createPeerConnection(<String, dynamic>{
       'iceServers': <Map<String, dynamic>>[
         <String, dynamic>{'urls': 'stun:stun.l.google.com:19302'},
@@ -65,11 +69,21 @@ class DeviceCallRtcController implements CallRtcController {
       }
     };
 
-    final MediaStream localStream =
-        await navigator.mediaDevices.getUserMedia(<String, dynamic>{
-      'audio': true,
-      'video': isVideo,
-    });
+    final MediaStream localStream;
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia(<String, dynamic>{
+        'audio': true,
+        'video': isVideo,
+      });
+    } on PlatformException catch (e) {
+      throw StateError(_permissionMessageFrom(e));
+    } catch (_) {
+      throw StateError(
+        isVideo
+            ? 'Camera and microphone access are required for video calls.'
+            : 'Microphone access is required to make calls.',
+      );
+    }
     _localStream = localStream;
     for (final MediaStreamTrack track in localStream.getTracks()) {
       await peer.addTrack(track, localStream);
@@ -136,6 +150,20 @@ class DeviceCallRtcController implements CallRtcController {
   }
 
   @override
+  Future<void> switchCamera() async {
+    if (!isVideo) return;
+    final MediaStream? stream = _localStream;
+    if (stream == null) return;
+    final MediaStreamTrack? videoTrack = stream.getVideoTracks().firstOrNull;
+    if (videoTrack == null) return;
+    try {
+      await Helper.switchCamera(videoTrack);
+    } on Exception {
+      // Some devices/platforms can't switch mid-call; the call keeps running.
+    }
+  }
+
+  @override
   Widget? get localView {
     final RTCVideoRenderer? renderer = _localRenderer;
     if (renderer == null) return null;
@@ -155,6 +183,36 @@ class DeviceCallRtcController implements CallRtcController {
       throw StateError('CallRtcController.initialize() must be called first.');
     }
     return peer;
+  }
+
+  /// Requests the microphone (and camera for video calls) up front so the
+  /// denial path produces a clear, recoverable error instead of an opaque
+  /// getUserMedia failure.
+  Future<void> _ensurePermissions() async {
+    if (kIsWeb) return;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return;
+    }
+    if (!await Permission.microphone.request().isGranted) {
+      throw StateError('Microphone access is required to make calls.');
+    }
+    if (isVideo && !await Permission.camera.request().isGranted) {
+      throw StateError('Camera access is required for video calls.');
+    }
+  }
+
+  String _permissionMessageFrom(PlatformException e) {
+    final String code = e.code.toLowerCase();
+    final bool permissionIssue = code.contains('denied') ||
+        code.contains('permission') ||
+        code.contains('notallow');
+    if (!permissionIssue) {
+      return 'Call failed. Check your connection and try again.';
+    }
+    return isVideo
+        ? 'Camera and microphone access are required for video calls.'
+        : 'Microphone access is required to make calls.';
   }
 
   @override

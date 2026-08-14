@@ -92,6 +92,12 @@ abstract interface class ChatRepository {
   /// When replying, [replyToId] plus [replyToType]/[replyToText]/
   /// [replyToSender] describe the quoted message so both sides can render the
   /// quote without a second lookup.
+  ///
+  /// Translation metadata: [senderLang] stamps the message with the sender's
+  /// language code (the receiver uses it to decide about auto-translation).
+  /// When the sender used "translate before sending", [text] is the
+  /// translation and [originalText]/[sourceLang] keep the original wording so
+  /// the peer can expand a "See original" toggle.
   Future<void> sendMessage({
     required String conversationId,
     required String senderUid,
@@ -103,6 +109,9 @@ abstract interface class ChatRepository {
     String? replyToText,
     String? replyToSender,
     String? voiceEffect,
+    String? senderLang,
+    String? originalText,
+    String? sourceLang,
   });
 
   /// Removes a message for everyone in the conversation. Only the original

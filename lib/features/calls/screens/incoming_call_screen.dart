@@ -120,6 +120,17 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (!mounted) return;
     final Call? call = session.call;
     if (session.failed || (call != null && call.isFinished)) {
+      if (session.failed) {
+        // e.g. camera/mic permission denied; decline so the caller's ring
+        // screen is dismissed rather than timing out.
+        unawaited(
+          CallScope.of(context).signaling.declineCall(widget.callId).catchError(
+            (Object e) {
+              debugPrint('declineCall failed: $e');
+            },
+          ),
+        );
+      }
       calls.clearSession(session);
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
       return;

@@ -7,7 +7,7 @@ import 'package:lotext/features/profile/models/user_profile.dart';
 import 'package:lotext/shared/widgets/lotext_button.dart';
 
 import '../../fakes.dart';
-import '../../widget_test.dart' show pumpApp;
+import '../../widget_test.dart' show pumpApp, openToolsTab;
 
 UserProfile profileOf(String uid) => UserProfile(
       uid: uid,
@@ -77,7 +77,7 @@ void main() {
     expect(repo.profiles['test-uid']!.username, 'jerry_2026');
     expect(repo.usernames, contains('jerry_2026'));
     // Router moved the user into the main screen.
-    expect(find.text('Welcome, jerry_2026'), findsOneWidget);
+    expect(find.text('LoText'), findsOneWidget);
   });
 
   testWidgets('taken usernames are rejected during setup',
@@ -156,6 +156,7 @@ void main() {
       profileRepository: repo,
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 
@@ -196,6 +197,7 @@ void main() {
       profileRepository: repo,
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Edit profile'));
@@ -242,6 +244,7 @@ void main() {
       photoPicker: FakePhotoPicker(photo: fakePhoto()),
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Edit profile'));
@@ -276,6 +279,7 @@ void main() {
       profileRepository: repo,
     );
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Edit profile'));
@@ -512,6 +516,7 @@ void main() {
       ));
     await pumpApp(tester, authService: auth, profileRepository: repo);
 
+    await openToolsTab(tester);
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 

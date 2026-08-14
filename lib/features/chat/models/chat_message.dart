@@ -7,9 +7,10 @@ enum ChatMessageStatus { sent, delivered, read }
 /// A single private message inside a conversation.
 ///
 /// Text messages only carry [text]. Media messages carry [mediaUrl] (a
-/// Supabase Storage download URL) plus optional metadata ([thumbnailUrl],
-/// [durationMs], [width]/[height], [fileName], [mimeType], [sizeBytes]); for
-/// media messages [text] is always empty (captions are not supported yet).
+/// short-lived signed Supabase Storage download URL) plus optional metadata
+/// ([thumbnailUrl], [durationMs], [width]/[height], [fileName], [mimeType],
+/// [sizeBytes]); for media messages [text] is always empty (captions are not
+/// supported yet).
 class ChatMessage {
   const ChatMessage({
     required this.id,
@@ -33,6 +34,9 @@ class ChatMessage {
     this.replyToText,
     this.replyToSender,
     this.voiceEffect,
+    this.senderLang,
+    this.originalText,
+    this.sourceLang,
   });
 
   final String id;
@@ -92,4 +96,21 @@ class ChatMessage {
   /// (null when no voice changer effect was used). Everyone who plays the
   /// clip hears the effect.
   final String? voiceEffect;
+
+  /// ISO 639-1-ish language code the sender was writing in when the message
+  /// was sent (their profile's [preferredLang]). The receiver compares it
+  /// with their own language to decide whether to auto-translate, without
+  /// paying for language detection.
+  final String? senderLang;
+
+  /// When the sender used "translate before sending", the message [text] is
+  /// the translation and [originalText] keeps the sender's original wording so
+  /// the peer can expand a "See original" toggle.
+  final String? originalText;
+
+  /// ISO 639-1-ish code (or English name) of [originalText]'s language.
+  final String? sourceLang;
+
+  /// Whether this message carries a stored original (translate-before-send).
+  bool get hasOriginal => originalText != null && originalText!.isNotEmpty;
 }

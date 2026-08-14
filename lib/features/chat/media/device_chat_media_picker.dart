@@ -30,8 +30,8 @@ class DeviceChatMediaPicker implements ChatMediaPicker {
       source: source == ChatMediaSource.camera
           ? ImageSource.camera
           : ImageSource.gallery,
-      maxWidth: 4096,
-      maxHeight: 4096,
+      maxWidth: _maxImageDimension.toDouble(),
+      maxHeight: _maxImageDimension.toDouble(),
       imageQuality: 90,
     );
     if (file == null) return null;

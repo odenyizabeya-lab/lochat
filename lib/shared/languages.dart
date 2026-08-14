@@ -13,8 +13,7 @@ class Language {
 ///
 /// Covers the major world languages (translation targets sent to the AI edge
 /// function by name).
-const List<Language> worldLanguages = <Language>[
-  Language('af', 'Afrikaans'),
+const List<Language> worldLanguages = <Language>[  Language('af', 'Afrikaans'),
   Language('sq', 'Albanian'),
   Language('am', 'Amharic'),
   Language('ar', 'Arabic'),
@@ -120,3 +119,21 @@ const List<Language> worldLanguages = <Language>[
   Language('yo', 'Yoruba'),
   Language('zu', 'Zulu'),
 ];
+
+/// Maps a stored language code (e.g. `en`, `pt-BR`, `zh-CN`) to its English
+/// display name (e.g. "English", "Portuguese", "Chinese (Simplified)").
+///
+/// Falls back to [fallback] when the code is unknown or empty. Regional codes
+/// match on their primary part (`pt-BR` -> "Portuguese").
+String languageNameFor(String? code, {String fallback = 'English'}) {
+  if (code == null || code.isEmpty) return fallback;
+  final String base = code.toLowerCase().trim();
+  final String primary = base.split('-').first;
+  for (final Language language in worldLanguages) {
+    if (language.code.toLowerCase() == base) return language.name;
+  }
+  for (final Language language in worldLanguages) {
+    if (language.code.toLowerCase() == primary) return language.name;
+  }
+  return fallback;
+}

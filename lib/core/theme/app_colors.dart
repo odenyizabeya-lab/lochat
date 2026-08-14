@@ -17,4 +17,20 @@ abstract final class AppColors {
     Color(0xFF8B5CF6),
     Color(0xFF4F46E5),
   ];
+
+  /// Live accent (teal): online rings, unread badges, typing and call accents.
+  /// Kept separate from the indigo brand so "live" states are unmistakable,
+  /// while staying an original LoText color rather than a WhatsApp copy.
+  static const Color live = Color(0xFF2DD4BF);
+  static const Color liveDeep = Color(0xFF0F766E);
+
+  /// Dark messenger chrome.
+  static const Color darkScaffold = Color(0xFF0C0E12);
+  static const Color darkSurface = Color(0xFF15181E);
+  static const Color darkSurfaceHigh = Color(0xFF1C2027);
+  static const Color darkBorder = Color(0xFF262B33);
+
+  /// Light messenger chrome.
+  static const Color lightScaffold = Color(0xFFF2F3F6);
+  static const Color lightSurface = Color(0xFFFFFFFF);
 }

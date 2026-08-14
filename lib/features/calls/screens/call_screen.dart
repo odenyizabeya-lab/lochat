@@ -288,11 +288,17 @@ class _CallScreenState extends State<CallScreen> {
           label: session.cameraEnabled ? 'Camera' : 'Camera off',
           onTap: () => unawaited(session.toggleCamera()),
         ));
+        buttons.add(_ControlButton(
+          icon: Icons.cameraswitch_rounded,
+          label: 'Switch camera',
+          onTap: () => unawaited(session.switchCamera()),
+        ));
       }
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: <Widget>[
         ...buttons,
         _EndCallButton(

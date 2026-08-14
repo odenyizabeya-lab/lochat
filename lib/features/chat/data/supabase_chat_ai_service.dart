@@ -14,7 +14,7 @@ class SupabaseChatAiService implements ChatAiService {
   final SupabaseClient _client;
 
   @override
-  Future<String> translateText({
+  Future<TextTranslationResult> translateText({
     required String text,
     required String targetLanguage,
   }) async {
@@ -23,7 +23,11 @@ class SupabaseChatAiService implements ChatAiService {
       'text': text,
       'targetLanguage': targetLanguage,
     });
-    return (data as Map<String, dynamic>)['translation'] as String? ?? '';
+    final Map<String, dynamic> map = data as Map<String, dynamic>;
+    return TextTranslationResult(
+      translation: map['translation'] as String? ?? '',
+      sourceLanguage: map['sourceLanguage'] as String? ?? '',
+    );
   }
 
   @override

@@ -8,6 +8,9 @@ abstract final class AppRoutes {
 
   static const String home = '/home';
   static const String chats = '/chats';
+  static const String calls = '/calls';
+  static const String updates = '/updates';
+  static const String tools = '/tools';
   static const String profile = '/profile';
   static const String settings = '/settings';
 
@@ -33,11 +36,22 @@ abstract final class AppRoutes {
 
   static String chatFor(String conversationId) => '/chat/$conversationId';
 
+  /// Archived conversations (empty until the archive feature exists; never
+  /// shows fake data).
+  static const String chatsArchived = '/chats/archived';
+
   /// LoText AI assistant.
   static const String ai = '/ai';
 
   /// Voice/video call history.
   static const String callHistory = '/calls/history';
+
+  /// Status composer (Updates tab). Full screen over the shell.
+  static const String statusComposer = '/updates/compose';
+
+  /// Status viewer. `extra` must be a map with 'group' (StatusGroup) and
+  /// 'isOwn' (bool).
+  static const String statusViewer = '/updates/viewer';
 
   /// Full-screen photo viewer. `extra` must be a map with 'url' (String) and
   /// optional 'id' (String).

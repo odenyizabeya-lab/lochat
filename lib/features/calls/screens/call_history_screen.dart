@@ -33,8 +33,16 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   @override
   void initState() {
     super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Resolve the scope here (not initState) so `ChatScope.maybeOf` may
+    // register its inherited dependency, then subscribe exactly once.
     final String? uid = ChatScope.maybeOf(context)?.uid;
-    if (uid != null) _subscribe(uid);
+    if (uid == null || uid == _uid) return;
+    _subscribe(uid);
   }
 
   void _subscribe(String uid) {

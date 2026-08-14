@@ -455,24 +455,40 @@ Deno.serve(async (req) => {
 
       case "translateText": {
         // Stateless text translation for the chat screen (no AI conversation
-        // rows are created).
+        // rows are created). The model returns JSON so the client also learns
+        // the source language (shown as "Translated from X").
         const text = String(body.text ?? "").trim();
         if (text === "") return json({ error: "Text is empty" }, 400);
         const targetLanguage = body.targetLanguage === undefined
           ? "English"
           : String(body.targetLanguage);
-        const system = systemPromptFor("translate", targetLanguage);
+        const system =
+          "Translate the user's text into " + targetLanguage + ". " +
+          'Respond with ONLY a JSON object with two fields: ' +
+          '"sourceLanguage" (the English name of the language the text was ' +
+          'originally written in, e.g. "French") and "translation" (the text ' +
+          'translated into ' + targetLanguage + '). Return only the JSON.';
         const reply = await generateReply(
           "openai",
           system,
           [{ role: "user", content: text }],
           admin,
         );
-        const translation = reply.trim();
+        let sourceLanguage = "";
+        let translation = "";
+        try {
+          const parsed = JSON.parse(reply.trim());
+          sourceLanguage = String(parsed?.sourceLanguage ?? "").trim();
+          translation = String(parsed?.translation ?? "").trim();
+        } catch {
+          // The model ignored the JSON instruction: treat the raw reply as
+          // the translation and leave the source language unknown.
+          translation = reply.trim();
+        }
         if (translation === "") {
           return json({ error: "Could not translate the message" }, 400);
         }
-        return json({ translation, targetLanguage });
+        return json({ translation, sourceLanguage, targetLanguage });
       }
 
       case "transcribe": {

@@ -1,4 +1,5 @@
 import '../../profile/models/user_profile.dart';
+import 'chat_message.dart';
 
 /// A private 1-to-1 conversation between the signed-in user and one peer.
 ///
@@ -16,6 +17,8 @@ class Conversation {
     this.unreadCount = 0,
     this.typingUid,
     this.typingUntil,
+    this.lastMessageType = MessageType.text,
+    this.lastMessageDurationMs,
   });
 
   /// Deterministic conversation ID (`<uidA>_<uidB>`, uids sorted), so the
@@ -44,6 +47,13 @@ class Conversation {
 
   /// When the typing stamp expires. The indicator is shown until this instant.
   final DateTime? typingUntil;
+
+  /// Type of the newest message, so the chats list can render a type-aware
+  /// preview ("Photo", "Video", "Voice message (0:16)").
+  final MessageType lastMessageType;
+
+  /// Duration of the newest message (voice messages), for previews.
+  final int? lastMessageDurationMs;
 
   bool get hasLastMessage => lastMessageText.isNotEmpty;
 

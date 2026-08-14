@@ -18,9 +18,11 @@ import 'chat_repository.dart';
 /// - `messages`         - the actual messages, PK (id, conversation_id).
 ///   Inserts go through the `send_message` RPC so the summary and unread
 ///   counters update atomically with the message row.
-/// - `chat_media`       - public bucket, objects at
-///   `{conversationId}/{messageId}` (and `_thumb` for thumbnails). Write access
-///   is restricted to conversation participants by storage policies.
+/// - `chat_media`       - private bucket, objects at
+///   `{conversationId}/{messageId}` (and `_thumb` for thumbnails). The DB
+///   stores the object path; signed URLs are resolved at render time. Read and
+///   write access are restricted to conversation participants by storage
+///   policies.
 /// - `device_tokens`    - FCM registration per user (kept for compatibility;
 ///   messages are surfaced through Realtime local notifications).
 class SupabaseChatRepository implements ChatRepository {
@@ -28,6 +30,13 @@ class SupabaseChatRepository implements ChatRepository {
       : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
+
+  /// Object-path -> signed URL cache so realtime re-emissions don't re-sign
+  /// every media message. Entries are refreshed ~10 minutes before expiry.
+  final Map<String, String> _signedUrlCache = <String, String>{};
+  final Map<String, DateTime> _signedUrlExpiresAt = <String, DateTime>{};
+  static const int _signedUrlLifetimeSeconds = 3600;
+  static const Duration _signedUrlRefreshMargin = Duration(minutes: 10);
 
   @override
   String conversationIdFor(String a, String b) {
@@ -62,6 +71,10 @@ class SupabaseChatRepository implements ChatRepository {
           unreadCount: (unread?[uid] as num?)?.toInt() ?? 0,
           typingUid: (row['typing_uid'] as String?) ?? '',
           typingUntil: _toDate(row['typing_until']),
+          lastMessageType:
+              _toType((row['last_message_type'] as String?) ?? 'text'),
+          lastMessageDurationMs:
+              (row['last_message_duration_ms'] as num?)?.toInt(),
         ));
       }
       return result;
@@ -140,6 +153,9 @@ class SupabaseChatRepository implements ChatRepository {
     String? replyToText,
     String? replyToSender,
     String? voiceEffect,
+    String? senderLang,
+    String? originalText,
+    String? sourceLang,
   }) async {
     final MessageType type = media?.type ?? MessageType.text;
     final String body = text.trim();
@@ -168,6 +184,9 @@ class SupabaseChatRepository implements ChatRepository {
         'p_reply_to_text': replyToText,
         'p_reply_to_sender': replyToSender,
         'p_voice_effect': voiceEffect ?? media?.voiceEffect,
+        'p_lang': _nullIfEmpty(senderLang),
+        'p_original_text': _nullIfEmpty(originalText),
+        'p_source_lang': _nullIfEmpty(sourceLang),
       });
     } on PostgrestException catch (e) {
       if (e.message.contains('INVALID_CONVERSATION')) {
@@ -233,8 +252,13 @@ class SupabaseChatRepository implements ChatRepository {
         .eq('conversation_id', conversationId)
         .order('created_at_ms', ascending: false)
         .limit(limit)
-        .map((List<Map<String, dynamic>> rows) =>
-            rows.map<ChatMessage>(_toMessage).toList().reversed.toList());
+        .asyncMap((List<Map<String, dynamic>> rows) async {
+      final List<ChatMessage> messages = <ChatMessage>[];
+      for (final Map<String, dynamic> row in rows) {
+        messages.add(await _toResolvedMessage(row));
+      }
+      return messages.reversed.toList();
+    });
   }
 
   @override
@@ -250,7 +274,11 @@ class SupabaseChatRepository implements ChatRepository {
         .lt('created_at_ms', before.createdAt.millisecondsSinceEpoch)
         .order('created_at_ms', ascending: false)
         .limit(limit);
-    return rows.map<ChatMessage>(_toMessage).toList().reversed.toList();
+    final List<ChatMessage> messages = <ChatMessage>[];
+    for (final Map<String, dynamic> row in rows) {
+      messages.add(await _toResolvedMessage(row));
+    }
+    return messages.reversed.toList();
   }
 
   @override
@@ -361,7 +389,83 @@ class SupabaseChatRepository implements ChatRepository {
       replyToText: _nullIfEmpty(data['reply_to_text'] as String?),
       replyToSender: _nullIfEmpty(data['reply_to_sender'] as String?),
       voiceEffect: _nullIfEmpty(data['voice_effect'] as String?),
+      senderLang: _nullIfEmpty(data['p_lang'] as String?),
+      originalText: _nullIfEmpty(data['original_text'] as String?),
+      sourceLang: _nullIfEmpty(data['source_lang'] as String?),
     );
+  }
+
+  /// Resolves stored object paths (and legacy public URLs) to fresh signed
+  /// URLs, since the `chat_media` bucket is private.
+  Future<ChatMessage> _toResolvedMessage(Map<String, dynamic> data) async {
+    final String? rawMedia = _nullIfEmpty(data['media_url'] as String?);
+    final String? rawThumb = _nullIfEmpty(data['thumbnail_url'] as String?);
+    final ChatMessage message = _toMessage(data);
+    return ChatMessage(
+      id: message.id,
+      conversationId: message.conversationId,
+      senderUid: message.senderUid,
+      createdAt: message.createdAt,
+      type: message.type,
+      text: message.text,
+      mediaUrl: rawMedia == null
+          ? null
+          : await _resolveMediaUrl(rawMedia) ?? rawMedia,
+      thumbnailUrl: rawThumb == null
+          ? null
+          : await _resolveMediaUrl(rawThumb) ?? rawThumb,
+      durationMs: message.durationMs,
+      width: message.width,
+      height: message.height,
+      fileName: message.fileName,
+      mimeType: message.mimeType,
+      sizeBytes: message.sizeBytes,
+      status: message.status,
+      isPending: message.isPending,
+      replyToId: message.replyToId,
+      replyToType: message.replyToType,
+      replyToText: message.replyToText,
+      replyToSender: message.replyToSender,
+      voiceEffect: message.voiceEffect,
+      senderLang: message.senderLang,
+      originalText: message.originalText,
+      sourceLang: message.sourceLang,
+    );
+  }
+
+  Future<String?> _resolveMediaUrl(String value) async {
+    final String path = _toObjectPath(value);
+    final DateTime now = DateTime.now();
+    final DateTime? cachedUntil = _signedUrlExpiresAt[path];
+    if (cachedUntil != null && cachedUntil.isAfter(now)) {
+      return _signedUrlCache[path];
+    }
+    try {
+      final String url = await _client.storage
+          .from('chat_media')
+          .createSignedUrl(path, _signedUrlLifetimeSeconds);
+      _signedUrlCache[path] = url;
+      _signedUrlExpiresAt[path] = now
+          .add(Duration(seconds: _signedUrlLifetimeSeconds))
+          .subtract(_signedUrlRefreshMargin);
+      return url;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Extracts the object path relative to the `chat_media` bucket from either
+  /// a stored path (`{conversationId}/{messageId}`) or a legacy public URL
+  /// (`.../object/public/chat_media/{conversationId}/{messageId}`).
+  String _toObjectPath(String value) {
+    const String marker = '/object/public/';
+    final int index = value.indexOf(marker);
+    if (index != -1) {
+      final String withBucket = value.substring(index + marker.length);
+      final int slash = withBucket.indexOf('/');
+      return slash == -1 ? withBucket : withBucket.substring(slash + 1);
+    }
+    return value;
   }
 
   MessageType _toType(String value) => switch (value) {
@@ -418,7 +522,7 @@ class _SupabaseMediaUploadTask implements MediaUploadTask {
   @override
   Future<String> get url async {
     await _upload();
-    return _storage.getPublicUrl(_path);
+    return _path;
   }
 
   Future<void> _upload() {

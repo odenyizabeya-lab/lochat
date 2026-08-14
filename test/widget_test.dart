@@ -11,6 +11,7 @@ import 'package:lotext/features/calls/call_controller.dart';
 import 'package:lotext/features/chat/chat_controller.dart';
 import 'package:lotext/features/profile/models/user_profile.dart';
 import 'package:lotext/features/profile/profile_controller.dart';
+import 'package:lotext/features/status/status_controller.dart';
 import 'package:lotext/shared/widgets/lotext_button.dart';
 
 import 'fakes.dart';
@@ -27,6 +28,8 @@ Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
   FakeChatRepository? chatRepository,
   FakePhotoPicker? photoPicker,
   FakeAiAssistantService? aiService,
+  FakeStatusRepository? statusRepository,
+  FakeCallSignalingService? callSignalingService,
 }) async {
   final FakeAuthService service = authService ?? FakeAuthService();
   final FakeProfileRepository profileRepo =
@@ -42,13 +45,25 @@ Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
   final ChatController chatController =
       ChatController(auth: authController, repository: chatRepo);
   final CallController callController = CallController(
-    signaling: FakeCallSignalingService(),
+    signaling: callSignalingService ?? FakeCallSignalingService(),
     rtcFactory: ({required bool isVideo}) => FakeCallRtcController(),
   );
   final AiAssistantController aiController = AiAssistantController(
     auth: authController,
     service: aiService ?? FakeAiAssistantService(),
   );
+  final FakeStatusRepository statusRepo =
+      statusRepository ?? FakeStatusRepository();
+  final StatusController statusController = StatusController(
+    auth: authController,
+    repository: statusRepo,
+    mediaPicker: FakeChatMediaPicker(),
+    videoPlaybackFactory: (String url) => FakeVideoPlaybackController(),
+  );
+  authController.addListener(() {
+    statusRepo.viewerUid = authController.currentUser?.uid;
+  });
+  statusRepo.viewerUid = authController.currentUser?.uid;
   await tester.binding.setSurfaceSize(const Size(412, 892));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
@@ -58,10 +73,18 @@ Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
       chatController: chatController,
       callController: callController,
       aiController: aiController,
+      statusController: statusController,
     ),
   );
   await tester.pumpAndSettle();
   return (authController, profileController, profileRepo);
+}
+
+/// Opens the Tools tab (the redesigned hub that hosts Contacts and Profile
+/// entries, since the bottom bar is now Chats / Calls / Updates / Tools).
+Future<void> openToolsTab(WidgetTester tester) async {
+  await tester.tap(find.text('Tools'));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -89,7 +112,7 @@ void main() {
       profileRepository: repo,
     );
 
-    expect(find.text('Welcome, Ada'), findsOneWidget);
+    expect(find.text('LoText'), findsOneWidget);
     expect(find.text('Chats'), findsWidgets);
   });
 
@@ -112,7 +135,7 @@ void main() {
     await tester.tap(find.widgetWithText(LoTextButton, 'Log in'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Welcome, Ada'), findsOneWidget);
+    expect(find.text('LoText'), findsOneWidget);
     expect(find.text('Chats'), findsWidgets);
   });
 
@@ -135,10 +158,11 @@ void main() {
         ),
         profileRepository: repo,
       );
-      return GoRouter.of(tester.element(find.text('Welcome, Ada')));
+      return GoRouter.of(tester.element(find.text('LoText')));
     }
 
-    testWidgets('the AI card is not shown on Home', (WidgetTester tester) async {
+    testWidgets('the AI card is not shown on the chats screen',
+        (WidgetTester tester) async {
       await signedInRouter(tester, isAdmin: true);
       expect(find.text('LoText AI'), findsNothing);
     });
@@ -150,12 +174,12 @@ void main() {
       router.push(AppRoutes.ai);
       await tester.pumpAndSettle();
       expect(find.text('LoText AI'), findsNothing);
-      expect(find.text('Welcome, Ada'), findsOneWidget);
+      expect(find.text('LoText'), findsOneWidget);
 
       router.push(AppRoutes.adminSettings);
       await tester.pumpAndSettle();
       expect(find.text('Only admins can manage provider keys.'), findsNothing);
-      expect(find.text('Welcome, Ada'), findsOneWidget);
+      expect(find.text('LoText'), findsOneWidget);
     });
 
     testWidgets('an admin can open the AI assistant',

@@ -16,6 +16,7 @@ import 'package:lotext/features/admin/data/app_config_repository.dart';
 import 'package:lotext/features/calls/models/call.dart';
 import 'package:lotext/features/calls/rtc/call_rtc_controller.dart';
 import 'package:lotext/features/calls/signaling/call_signaling_service.dart';
+import 'package:lotext/features/chat/data/chat_ai_service.dart';
 import 'package:lotext/features/chat/data/chat_repository.dart';
 import 'package:lotext/features/chat/media/chat_media_picker.dart';
 import 'package:lotext/features/chat/media/media_playback.dart';
@@ -28,6 +29,8 @@ import 'package:lotext/features/profile/data/photo_picker.dart';
 import 'package:lotext/features/profile/data/profile_repository.dart';
 import 'package:lotext/features/profile/models/contact.dart';
 import 'package:lotext/features/profile/models/user_profile.dart';
+import 'package:lotext/features/status/data/status_repository.dart';
+import 'package:lotext/features/status/models/status_update.dart';
 
 /// Canonical form of a username: trimmed and lowercased (like production).
 String normalize(String value) => value.trim().toLowerCase();
@@ -189,6 +192,8 @@ class FakeProfileRepository implements ProfileRepository {
       photoURL: existing?.photoURL,
       isOnline: existing?.isOnline ?? true,
       isAdmin: existing?.isAdmin ?? false,
+      preferredLang: existing?.preferredLang,
+      autoTranslate: existing?.autoTranslate ?? true,
       lastSeen: existing?.lastSeen,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),
@@ -206,6 +211,36 @@ class FakeProfileRepository implements ProfileRepository {
     if (existing == null) return;
     final UserProfile updated =
         existing.copyWith(displayName: displayName, updatedAt: DateTime.now());
+    profiles[uid] = updated;
+    _controllerFor(uid).add(updated);
+  }
+
+  @override
+  Future<void> setPreferredLanguage({
+    required String uid,
+    required String code,
+  }) async {
+    final UserProfile? existing = profiles[uid];
+    if (existing == null) return;
+    final UserProfile updated = existing.copyWith(
+      preferredLang: code,
+      updatedAt: DateTime.now(),
+    );
+    profiles[uid] = updated;
+    _controllerFor(uid).add(updated);
+  }
+
+  @override
+  Future<void> setAutoTranslate({
+    required String uid,
+    required bool enabled,
+  }) async {
+    final UserProfile? existing = profiles[uid];
+    if (existing == null) return;
+    final UserProfile updated = existing.copyWith(
+      autoTranslate: enabled,
+      updatedAt: DateTime.now(),
+    );
     profiles[uid] = updated;
     _controllerFor(uid).add(updated);
   }
@@ -270,6 +305,8 @@ class FakeProfileRepository implements ProfileRepository {
       photoURL: existing?.photoURL,
       isOnline: existing?.isOnline ?? true,
       isAdmin: existing?.isAdmin ?? false,
+      preferredLang: existing?.preferredLang,
+      autoTranslate: existing?.autoTranslate ?? true,
       lastSeen: existing?.lastSeen,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),
@@ -415,6 +452,8 @@ class FakeConversationData {
   DateTime? lastMessageAt;
   String lastSenderUid = '';
   String lastSenderName = '';
+  MessageType lastMessageType = MessageType.text;
+  int? lastMessageDurationMs;
   final Map<String, int> unreadCounts = <String, int>{};
   String? typingUid;
   DateTime? typingUntil;
@@ -503,6 +542,8 @@ class FakeChatRepository implements ChatRepository {
         unreadCount: data.unreadCounts[uid] ?? 0,
         typingUid: data.typingUid,
         typingUntil: data.typingUntil,
+        lastMessageType: data.lastMessageType,
+        lastMessageDurationMs: data.lastMessageDurationMs,
       ));
     }
     result.sort((Conversation a, Conversation b) {
@@ -566,6 +607,9 @@ class FakeChatRepository implements ChatRepository {
     String? replyToText,
     String? replyToSender,
     String? voiceEffect,
+    String? senderLang,
+    String? originalText,
+    String? sourceLang,
   }) async {
     final String id = messageId ?? 'msg-${_messageSeed++}';
     final ChatMessage message = ChatMessage(
@@ -588,12 +632,17 @@ class FakeChatRepository implements ChatRepository {
       replyToText: replyToText,
       replyToSender: replyToSender,
       voiceEffect: voiceEffect,
+      senderLang: senderLang,
+      originalText: originalText,
+      sourceLang: sourceLang,
     );
     messages.putIfAbsent(conversationId, () => <ChatMessage>[]).add(message);
 
     final FakeConversationData? data = conversations[conversationId];
     if (data != null) {
       data.lastMessageText = media == null ? text : '[${media.type.name}]';
+      data.lastMessageType = media?.type ?? MessageType.text;
+      data.lastMessageDurationMs = media?.durationMs;
       data.lastMessageAt = message.createdAt;
       data.lastSenderUid = senderUid;
       data.lastSenderName =
@@ -736,6 +785,14 @@ class FakeChatRepository implements ChatRepository {
         sizeBytes: message.sizeBytes,
         status: status,
         isPending: message.isPending,
+        replyToId: message.replyToId,
+        replyToType: message.replyToType,
+        replyToText: message.replyToText,
+        replyToSender: message.replyToSender,
+        voiceEffect: message.voiceEffect,
+        senderLang: message.senderLang,
+        originalText: message.originalText,
+        sourceLang: message.sourceLang,
       );
     }
     _emitMessages(conversationId);
@@ -1006,6 +1063,16 @@ class FakeCallSignalingService implements CallSignalingService {
 
   int _nextId = 0;
 
+  /// Throws from every fetch when true (used to test error states).
+  bool failRequests = false;
+
+  /// Seeds a call into the fake store (like Firestore data already present)
+  /// and emits a change so live `watchCallChanges` subscribers refresh.
+  void seedCall(Call call) {
+    _calls[call.id] = call;
+    _emit(call.id);
+  }
+
   StreamController<Call> _watcher(String callId) =>
       _watchers.putIfAbsent(callId, StreamController<Call>.broadcast);
 
@@ -1158,6 +1225,7 @@ class FakeCallSignalingService implements CallSignalingService {
 
   @override
   Future<List<Call>> fetchCallHistory({required String uid}) async {
+    if (failRequests) throw Exception('call history load failed');
     final List<Call> calls = _calls.values
         .where((Call c) => c.callerUid == uid || c.calleeUid == uid)
         .toList()
@@ -1206,6 +1274,9 @@ class FakeCallRtcController implements CallRtcController {
 
   @override
   Future<void> toggleCamera() async => _cameraEnabled = !_cameraEnabled;
+
+  @override
+  Future<void> switchCamera() async {}
 
   @override
   bool get cameraEnabled => _cameraEnabled;
@@ -1334,5 +1405,244 @@ class FakeAiAssistantService implements AiAssistantService {
     if (failRequests) {
       throw StateError('Fake AI failure');
     }
+  }
+}
+
+/// An in-memory [StatusRepository] for widget tests.
+///
+/// Mirrors the production contract: statuses are grouped by author, newest
+/// first, and groups are sorted by their latest post; viewing is idempotent and
+/// tracked per viewer. Every write is emitted to watchers (like Supabase
+/// Realtime). [viewerUid] plays the role of the RLS-authenticated caller, so
+/// `markStatusViewed` and `deleteStatus` know who is acting.
+class FakeStatusRepository implements StatusRepository {
+  /// All statuses currently in the system, keyed by id.
+  final Map<String, StatusUpdate> statuses = <String, StatusUpdate>{};
+
+  /// Author profiles used to render groups.
+  final Map<String, UserProfile> profiles = <String, UserProfile>{};
+
+  /// statusId -> (viewerUid -> viewedAt).
+  final Map<String, Map<String, DateTime>> views =
+      <String, Map<String, DateTime>>{};
+
+  /// The signed-in user, treated as the RLS-authenticated caller.
+  String? viewerUid;
+
+  final Map<String, StreamController<List<StatusGroup>>> _controllers =
+      <String, StreamController<List<StatusGroup>>>{};
+
+  int _seed = 0;
+
+  StreamController<List<StatusGroup>> _controllerFor(String uid) {
+    return _controllers.putIfAbsent(
+      uid,
+      () => StreamController<List<StatusGroup>>.broadcast(),
+    );
+  }
+
+  /// Seeds an author profile used to render status groups.
+  void seedProfile(UserProfile profile) {
+    profiles[profile.uid] = profile;
+  }
+
+  /// Seeds a status, optionally marking which uids have already seen it.
+  void seedStatus(StatusUpdate status, {Set<String> viewedBy = const {}}) {
+    statuses[status.id] = status;
+    for (final String viewer in viewedBy) {
+      views.putIfAbsent(status.id, () => <String, DateTime>{})[viewer] =
+          status.createdAt;
+    }
+    for (final String viewer in _controllers.keys) {
+      _emit(viewer);
+    }
+  }
+
+  void _emit(String uid) {
+    final StreamController<List<StatusGroup>>? controller = _controllers[uid];
+    if (controller != null && !controller.isClosed) {
+      controller.add(_groupsFor(uid));
+    }
+  }
+
+  List<StatusGroup> _groupsFor(String uid) {
+    final Map<String, List<StatusUpdate>> grouped =
+        <String, List<StatusUpdate>>{};
+    for (final StatusUpdate raw in statuses.values) {
+      final StatusUpdate status = raw.copyWith(
+        isViewed: views[raw.id]?.containsKey(uid) ?? false,
+      );
+      grouped.putIfAbsent(status.uid, () => <StatusUpdate>[]).add(status);
+    }
+    for (final List<StatusUpdate> list in grouped.values) {
+      list.sort((StatusUpdate a, StatusUpdate b) {
+        return b.createdAt.compareTo(a.createdAt);
+      });
+    }
+    final List<StatusGroup> groups = grouped.entries.map((MapEntry<String, List<StatusUpdate>> e) {
+      return StatusGroup(
+        author: profiles[e.key] ??
+            UserProfile(uid: e.key, username: e.key, displayName: ''),
+        statuses: e.value,
+      );
+    }).toList();
+    groups.sort((StatusGroup a, StatusGroup b) {
+      return b.statuses.first.createdAt.compareTo(a.statuses.first.createdAt);
+    });
+    return groups;
+  }
+
+  @override
+  Stream<List<StatusGroup>> watchStatuses(String uid) {
+    return Stream<List<StatusGroup>>.multi(
+      (StreamController<List<StatusGroup>> controller) {
+        controller.add(_groupsFor(uid));
+        final StreamSubscription<List<StatusGroup>> sub =
+            _controllerFor(uid).stream.listen(controller.add);
+        controller.onCancel = () => sub.cancel();
+      },
+    );
+  }
+
+  @override
+  Future<String> postStatus({
+    required String uid,
+    required StatusType type,
+    String text = '',
+    String? statusId,
+    String? mediaUrl,
+    String? thumbnailUrl,
+    int? durationMs,
+    double? width,
+    double? height,
+    String? mimeType,
+  }) async {
+    final String id = statusId ?? 'status-${_seed++}';
+    final DateTime now = DateTime.now();
+    statuses[id] = StatusUpdate(
+      id: id,
+      uid: uid,
+      type: type,
+      text: text,
+      mediaUrl: mediaUrl,
+      thumbnailUrl: thumbnailUrl,
+      durationMs: durationMs,
+      width: width,
+      height: height,
+      mimeType: mimeType,
+      createdAt: now,
+      expiresAt: now.add(const Duration(hours: 24)),
+    );
+    for (final String viewer in _controllers.keys) {
+      _emit(viewer);
+    }
+    return id;
+  }
+
+  @override
+  Future<MediaUploadTask> uploadStatusMedia({
+    required String uid,
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+    required String fileName,
+  }) async {
+    return FakeMediaUploadTask(
+      resultUrl: 'https://fake.example/status_media/$uid/$statusId',
+    );
+  }
+
+  @override
+  Future<MediaUploadTask> uploadStatusThumbnail({
+    required String uid,
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    return FakeMediaUploadTask(
+      resultUrl: 'https://fake.example/status_media/$uid/${statusId}_thumb',
+    );
+  }
+
+  @override
+  Future<void> markStatusViewed(String statusId) async {
+    final String? viewer = viewerUid;
+    final StatusUpdate? status = statuses[statusId];
+    if (viewer == null || status == null || status.uid == viewer) return;
+    views.putIfAbsent(statusId, () => <String, DateTime>{})[viewer] =
+        DateTime.now();
+    for (final String uid in _controllers.keys) {
+      _emit(uid);
+    }
+  }
+
+  @override
+  Future<void> deleteStatus(String statusId) async {
+    final StatusUpdate? status = statuses[statusId];
+    if (status == null) return;
+    if (viewerUid != null && status.uid != viewerUid) return;
+    statuses.remove(statusId);
+    views.remove(statusId);
+    for (final String uid in _controllers.keys) {
+      _emit(uid);
+    }
+  }
+
+  @override
+  Future<List<StatusViewer>> fetchStatusViewers(String statusId) async {
+    final Map<String, DateTime>? byUid = views[statusId];
+    if (byUid == null) return const <StatusViewer>[];
+    final List<StatusViewer> result = byUid.entries.map((MapEntry<String, DateTime> e) {
+      return StatusViewer(
+        profile: profiles[e.key] ??
+            UserProfile(uid: e.key, username: e.key, displayName: ''),
+        viewedAt: e.value,
+      );
+    }).toList();
+    result.sort((StatusViewer a, StatusViewer b) {
+      return b.viewedAt.compareTo(a.viewedAt);
+    });
+    return result;
+  }
+}
+
+/// A fake [ChatAiService] that returns preset translations (or throws).
+class FakeChatAiService implements ChatAiService {
+  /// The translation returned for every request.
+  String translation = 'Bonjour';
+
+  /// English name of the "source" language reported for translations.
+  String sourceLanguage = '';
+
+  /// Thrown from every operation when true (used to test error states).
+  bool failRequests = false;
+
+  /// Every call is recorded for assertions.
+  final List<({String text, String targetLanguage})> translateCalls =
+      <({String text, String targetLanguage})>[];
+
+  @override
+  Future<TextTranslationResult> translateText({
+    required String text,
+    required String targetLanguage,
+  }) async {
+    if (failRequests) throw const ChatAiException('Translation failed');
+    translateCalls.add((text: text, targetLanguage: targetLanguage));
+    return TextTranslationResult(
+      translation: translation,
+      sourceLanguage: sourceLanguage,
+    );
+  }
+
+  @override
+  Future<VoiceTranslationResult> translateVoice({
+    required String audioUrl,
+    required String targetLanguage,
+  }) async {
+    if (failRequests) throw const ChatAiException('Translation failed');
+    return VoiceTranslationResult(
+      transcript: 'transcript',
+      translation: translation,
+    );
   }
 }

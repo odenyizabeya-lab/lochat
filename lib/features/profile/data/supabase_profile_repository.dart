@@ -82,6 +82,26 @@ class SupabaseProfileRepository implements ProfileRepository {
   }
 
   @override
+  Future<void> setPreferredLanguage({
+    required String uid,
+    required String code,
+  }) async {
+    await _client.from('profiles').update(<String, dynamic>{
+      'preferred_lang': _nullIfEmpty(code),
+    }).eq('uid', uid);
+  }
+
+  @override
+  Future<void> setAutoTranslate({
+    required String uid,
+    required bool enabled,
+  }) async {
+    await _client.from('profiles').update(<String, dynamic>{
+      'auto_translate': enabled,
+    }).eq('uid', uid);
+  }
+
+  @override
   Future<String> uploadProfilePhoto({
     required String uid,
     required Uint8List bytes,
@@ -94,7 +114,9 @@ class SupabaseProfileRepository implements ProfileRepository {
             upsert: true,
           ),
         );
-    return _client.storage.from('profile_photos').getPublicUrl(uid);
+    // The bucket is private: store the object path (`uid`) and let the avatar
+    // widget resolve a signed URL at render time.
+    return uid;
   }
 
   @override
@@ -262,6 +284,8 @@ class SupabaseProfileRepository implements ProfileRepository {
       photoURL: _nullIfEmpty(data['photo_url'] as String?),
       isOnline: (data['is_online'] as bool?) ?? false,
       isAdmin: (data['is_admin'] as bool?) ?? false,
+      preferredLang: _nullIfEmpty(data['preferred_lang'] as String?),
+      autoTranslate: (data['auto_translate'] as bool?) ?? true,
       lastSeen: _toDate(data['last_seen']),
       createdAt: _toDate(data['created_at']),
       updatedAt: _toDate(data['updated_at']),

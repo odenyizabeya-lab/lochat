@@ -1,8 +1,11 @@
 # LoText Supabase configuration (local CLI dev).
 # Deploy migrations with: supabase db push
-# Deploy functions with: supabase functions deploy ai-assistant
+# Deploy functions with: supabase functions deploy ai-assistant notify
 # Set AI provider keys with:
 #   supabase secrets set OPENAI_API_KEY=... ANTHROPIC_API_KEY=... GEMINI_API_KEY=...
+# Set push secrets with:
+#   supabase secrets set NOTIFY_WEBHOOK_SECRET=... FCM_PROJECT_ID=... \
+#     FCM_CLIENT_EMAIL=... "FCM_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----..."
 
 project_id = "lotext"
 
@@ -20,3 +23,9 @@ port = 54323
 [functions]
 enabled = true
 verify_jwt = true
+
+# Called by the Postgres trigger (migration 0009), not by a signed-in user, so
+# it cannot require a JWT. It authenticates via the x-notify-secret header
+# instead.
+[functions.notify]
+verify_jwt = false

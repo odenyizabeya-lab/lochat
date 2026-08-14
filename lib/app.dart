@@ -34,14 +34,17 @@ import 'features/profile/data/photo_picker.dart';
 import 'features/profile/presence_observer.dart';
 import 'features/profile/profile_controller.dart';
 import 'features/profile/profile_scope.dart';
+import 'features/status/status_controller.dart';
+import 'features/status/status_scope.dart';
+import 'features/status/data/supabase_status_repository.dart';
 
 /// Root widget of the LoText application.
 ///
-/// Owns the theme, authentication, profile, chat, calls and AI controllers,
-/// exposes them to the rest of the tree through [AuthScope], [ProfileScope],
-/// [ChatScope], [CallScope] and [AiScope], records online/offline presence
-/// through [PresenceObserver], and wires push notifications to open the
-/// matching conversation.
+/// Owns the theme, authentication, profile, chat, calls, AI and status
+/// controllers, exposes them to the rest of the tree through [AuthScope],
+/// [ProfileScope], [ChatScope], [CallScope], [AiScope] and [StatusScope],
+/// records online/offline presence through [PresenceObserver], and wires push
+/// notifications to open the matching conversation.
 class LoTextApp extends StatefulWidget {
   const LoTextApp({
     super.key,
@@ -50,6 +53,7 @@ class LoTextApp extends StatefulWidget {
     this.chatController,
     this.callController,
     this.aiController,
+    this.statusController,
     this.notificationsService,
     this.demoMode = false,
   });
@@ -61,6 +65,7 @@ class LoTextApp extends StatefulWidget {
   final ChatController? chatController;
   final CallController? callController;
   final AiAssistantController? aiController;
+  final StatusController? statusController;
   final NotificationsService? notificationsService;
 
   /// Runs the UI against injected in-memory services instead of Supabase:
@@ -84,6 +89,7 @@ class _LoTextAppState extends State<LoTextApp> {
   late final ChatController _chatController;
   late final CallController _callController;
   late final AiAssistantController _aiController;
+  late final StatusController _statusController;
   NotificationsService? _notificationsService;
   IncomingCallWatcher? _incomingCallWatcher;
   late final GoRouter _router;
@@ -125,6 +131,12 @@ class _LoTextAppState extends State<LoTextApp> {
         AiAssistantController(
           auth: _authController,
           service: SupabaseAiAssistantService(),
+        );
+
+    _statusController = widget.statusController ??
+        StatusController(
+          auth: _authController,
+          repository: SupabaseStatusRepository(),
         );
 
     if (widget.notificationsService != null) {
@@ -180,6 +192,9 @@ class _LoTextAppState extends State<LoTextApp> {
     if (widget.aiController == null) {
       _aiController.dispose();
     }
+    if (widget.statusController == null) {
+      _statusController.dispose();
+    }
     super.dispose();
   }
 
@@ -194,10 +209,12 @@ class _LoTextAppState extends State<LoTextApp> {
             controller: _profileController,
             child: ChatScope(
               controller: _chatController,
-              child: CallScope(
-                controller: _callController,
-                child: AiScope(
-                  controller: _aiController,
+            child: CallScope(
+              controller: _callController,
+              child: AiScope(
+                controller: _aiController,
+                child: StatusScope(
+                  controller: _statusController,
                   child: PresenceObserver(
                     child: MaterialApp.router(
                       title: AppConstants.appName,
@@ -210,6 +227,7 @@ class _LoTextAppState extends State<LoTextApp> {
                   ),
                 ),
               ),
+            ),
             ),
           ),
         );

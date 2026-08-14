@@ -9,7 +9,7 @@ import 'package:lotext/features/profile/profile_controller.dart';
 import 'package:lotext/features/profile/profile_scope.dart';
 
 import '../../fakes.dart';
-import '../../widget_test.dart' show pumpApp;
+import '../../widget_test.dart' show pumpApp, openToolsTab;
 
 void main() {
   group('Settings screen admin section', () {
@@ -203,6 +203,7 @@ Future<void> _openSettings(
     ),
     profileRepository: repo,
   );
+  await openToolsTab(tester);
   await tester.tap(find.text('Profile'));
   await tester.pumpAndSettle();
   await tester.scrollUntilVisible(find.text('Settings'), 120);

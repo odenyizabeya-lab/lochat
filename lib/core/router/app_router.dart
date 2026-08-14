@@ -12,15 +12,18 @@ import '../../features/calls/call_session_controller.dart';
 import '../../features/calls/models/call.dart';
 import '../../features/calls/screens/call_history_screen.dart';
 import '../../features/calls/screens/call_screen.dart';
+import '../../features/calls/screens/calls_screen.dart';
 import '../../features/calls/screens/incoming_call_screen.dart';
 import '../../features/chat/chat_screen.dart';
 import '../../features/chat/photo_viewer_screen.dart';
+import '../../features/chat/screens/archived_conversations_screen.dart';
 import '../../features/chat/video_player_screen.dart';
 import '../../features/home/chats/chats_screen.dart';
 import '../../features/home/contacts/contacts_screen.dart';
-import '../../features/home/home_screen.dart';
 import '../../features/home/main_screen.dart';
 import '../../features/home/profile/profile_screen.dart';
+import '../../features/home/tools/tools_screen.dart';
+import '../../features/home/updates/updates_screen.dart';
 import '../../features/profile/profile_controller.dart';
 import '../../features/profile/screens/add_contact_screen.dart';
 import '../../features/profile/screens/choose_username_screen.dart';
@@ -28,6 +31,9 @@ import '../../features/profile/screens/edit_profile_screen.dart';
 import '../../features/profile/screens/public_profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/splash/splash_screen.dart';
+import '../../features/status/models/status_update.dart';
+import '../../features/status/screens/status_composer_screen.dart';
+import '../../features/status/screens/status_viewer_screen.dart';
 import '../auth/auth_controller.dart';
 import '../theme/theme_controller.dart';
 import 'app_routes.dart';
@@ -93,14 +99,14 @@ GoRouter createRouter({
       // The AI assistant and admin dashboard are for admins only.
       if (_adminOnlyRoutes.contains(location) &&
           !(profileController.profile?.isAdmin ?? false)) {
-        return AppRoutes.home;
+        return AppRoutes.chats;
       }
 
       // Signed in with a username. Keep them out of the signed-out flow.
       if (location == AppRoutes.splash ||
           _authOnlyRoutes.contains(location) ||
           location == AppRoutes.chooseUsername) {
-        return AppRoutes.home;
+        return AppRoutes.chats;
       }
       return null;
     },
@@ -152,6 +158,18 @@ GoRouter createRouter({
         name: 'add-contact',
         builder: (BuildContext context, GoRouterState state) =>
             const AddContactScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.contacts,
+        name: 'contacts',
+        builder: (BuildContext context, GoRouterState state) =>
+            const ContactsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profile,
+        name: 'profile',
+        builder: (BuildContext context, GoRouterState state) =>
+            const ProfileScreen(),
       ),
       GoRoute(
         path: AppRoutes.publicProfile,
@@ -254,22 +272,50 @@ GoRouter createRouter({
           );
         },
       ),
+      GoRoute(
+        path: AppRoutes.chatsArchived,
+        name: 'chats-archived',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          return ArchivedConversationsScreen(
+            title: extra?['title'] as String? ?? 'Archived',
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.statusComposer,
+        name: 'status-composer',
+        builder: (BuildContext context, GoRouterState state) =>
+            const StatusComposerScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.statusViewer,
+        name: 'status-viewer',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final StatusGroup? group = extra?['group'] as StatusGroup?;
+          if (group == null) {
+            return const Scaffold(body: SizedBox.shrink());
+          }
+          return StatusViewerScreen(
+            group: group,
+            isOwn: extra?['isOwn'] as bool? ?? false,
+            startIndex: (extra?['startIndex'] as num?)?.toInt() ?? 0,
+          );
+        },
+      ),
       StatefulShellRoute.indexedStack(
         builder: (BuildContext context, GoRouterState state,
             StatefulNavigationShell navigationShell) {
           return MainScreen(navigationShell: navigationShell);
         },
         branches: <StatefulShellBranch>[
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: AppRoutes.home,
-                name: 'home',
-                builder: (BuildContext context, GoRouterState state) =>
-                    const HomeScreen(),
-              ),
-            ],
-          ),
           StatefulShellBranch(
             routes: <RouteBase>[
               GoRoute(
@@ -283,20 +329,30 @@ GoRouter createRouter({
           StatefulShellBranch(
             routes: <RouteBase>[
               GoRoute(
-                path: AppRoutes.contacts,
-                name: 'contacts',
+                path: AppRoutes.calls,
+                name: 'calls',
                 builder: (BuildContext context, GoRouterState state) =>
-                    const ContactsScreen(),
+                    const CallsScreen(),
               ),
             ],
           ),
           StatefulShellBranch(
             routes: <RouteBase>[
               GoRoute(
-                path: AppRoutes.profile,
-                name: 'profile',
+                path: AppRoutes.updates,
+                name: 'updates',
                 builder: (BuildContext context, GoRouterState state) =>
-                    const ProfileScreen(),
+                    const UpdatesScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: AppRoutes.tools,
+                name: 'tools',
+                builder: (BuildContext context, GoRouterState state) =>
+                    const ToolsScreen(),
               ),
             ],
           ),

@@ -16,9 +16,7 @@ import 'models/chat_message.dart';
 import 'models/conversation.dart';
 
 /// Factory that builds a [VideoPlaybackController] for a network video URL.
-typedef VideoPlaybackControllerFactory = VideoPlaybackController Function(
-  String url,
-);
+/// (see [VideoPlaybackControllerFactory] in media/video_playback.dart).
 
 /// Factory that builds a [VoicePlayer] for the chat's voice messages.
 typedef VoicePlayerFactory = VoicePlayer Function();
@@ -123,6 +121,12 @@ class ChatController extends ChangeNotifier {
   /// screens can subscribe and unsubscribe freely (e.g. the app bar on each
   /// rebuild) without disturbing the persistent subscription.
   Stream<List<Conversation>> watchConversations() {
+    final String? uid = _uid;
+    if (uid == null) {
+      // Signed out: screens still in the tree during the sign-out transition
+      // must not crash on the missing uid; they simply see no conversations.
+      return Stream<List<Conversation>>.empty();
+    }
     final Stream<List<Conversation>> source =
         _conversationsStream ??= _createConversationsBroadcast();
     return Stream<List<Conversation>>.multi(
@@ -192,6 +196,11 @@ class ChatController extends ChangeNotifier {
   /// Sends [text] to the conversation. Empty/whitespace text is ignored.
   /// When [replyToId] is provided the message is sent as a reply to that
   /// message, carrying the quote context for both sides to render.
+  ///
+  /// [senderLang] stamps the message with the sender's language code so the
+  /// peer can decide about auto-translation. When the user translated the
+  /// draft before sending, [text] is the translation and [originalText] +
+  /// [sourceLang] keep the original wording for a "See original" toggle.
   Future<void> sendMessage({
     required String conversationId,
     required String text,
@@ -199,6 +208,9 @@ class ChatController extends ChangeNotifier {
     String? replyToType,
     String? replyToText,
     String? replyToSender,
+    String? senderLang,
+    String? originalText,
+    String? sourceLang,
   }) {
     final String body = text.trim();
     if (body.isEmpty) return Future<void>.value();
@@ -210,6 +222,9 @@ class ChatController extends ChangeNotifier {
       replyToType: replyToType,
       replyToText: replyToText,
       replyToSender: replyToSender,
+      senderLang: senderLang,
+      originalText: originalText,
+      sourceLang: sourceLang,
     );
   }
 

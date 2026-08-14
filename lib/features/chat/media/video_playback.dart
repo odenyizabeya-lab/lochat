@@ -24,6 +24,11 @@ abstract interface class VideoPlaybackController {
   Widget buildView();
 }
 
+/// Factory that builds a [VideoPlaybackController] for a network video URL.
+typedef VideoPlaybackControllerFactory = VideoPlaybackController Function(
+  String url,
+);
+
 /// Production default factory used by the app wiring.
 VideoPlaybackController defaultDeviceVideoPlaybackController(String url) =>
     DeviceVideoPlaybackController(url: url);

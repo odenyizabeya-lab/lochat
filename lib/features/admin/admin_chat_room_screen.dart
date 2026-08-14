@@ -15,7 +15,6 @@ class AdminChatRoomScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return const ChatsScreen(
       title: 'Chat Room',
-      showCallsCard: false,
     );
   }
 }

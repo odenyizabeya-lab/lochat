@@ -8,6 +8,19 @@ class ChatAiException implements Exception {
   String toString() => message;
 }
 
+/// The result of translating a text message: the translation plus a
+/// best-effort English name of the source language (e.g. "French"), used for
+/// the "Translated from X" label. Empty when the provider could not tell.
+class TextTranslationResult {
+  const TextTranslationResult({
+    required this.translation,
+    this.sourceLanguage = '',
+  });
+
+  final String translation;
+  final String sourceLanguage;
+}
+
 /// The result of translating a voice message: the transcript in the original
 /// language plus its translation into the requested language.
 class VoiceTranslationResult {
@@ -27,7 +40,7 @@ class VoiceTranslationResult {
 /// depends only on this interface; tests inject a fake.
 abstract interface class ChatAiService {
   /// Translates [text] into [targetLanguage] (e.g. "French").
-  Future<String> translateText({
+  Future<TextTranslationResult> translateText({
     required String text,
     required String targetLanguage,
   });

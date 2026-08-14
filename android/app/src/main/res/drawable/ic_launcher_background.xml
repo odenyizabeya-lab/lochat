@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand gradient behind the adaptive launcher foreground (violet -> indigo). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#8B5CF6"
+        android:centerColor="#6D53EE"
+        android:endColor="#4F46E5" />
+</shape>

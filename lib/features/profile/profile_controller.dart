@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../core/auth/auth_controller.dart';
 import 'data/photo_picker.dart';
@@ -33,6 +33,9 @@ class ProfileController extends ChangeNotifier {
 
   /// Guards against duplicate LoText ID back-fill attempts in one session.
   String? _lotextIdBackfillUid;
+
+  /// Guards against duplicate preferred-language back-fills in one session.
+  String? _preferredLangBackfillUid;
 
   /// Cached per-session contacts stream so rebuilds reuse one subscription.
   Stream<List<Contact>>? _contactsStream;
@@ -110,6 +113,11 @@ class ProfileController extends ChangeNotifier {
         if (profile != null && (profile.lotextId ?? '').isEmpty) {
           unawaited(_backfillLotextId(uid));
         }
+        // Accounts that never chose a language get the device locale so
+        // auto-translation has a target from day one.
+        if (profile != null && (profile.preferredLang ?? '').isEmpty) {
+          unawaited(_backfillPreferredLang(uid));
+        }
       },
       onError: (Object e) {
         _error = e;
@@ -128,6 +136,28 @@ class ProfileController extends ChangeNotifier {
       await _repository.ensureLotextId(uid: uid);
     } on Exception {
       // Non-fatal; the profile simply has no ID until the next successful run.
+    }
+  }
+
+  /// Seeds the profile's preferred language from the device locale when the
+  /// user never picked one (so auto-translation has a target immediately).
+  Future<void> _backfillPreferredLang(String uid) async {
+    if (_preferredLangBackfillUid == uid) return;
+    _preferredLangBackfillUid = uid;
+    final String? code = _deviceLanguageCode();
+    if (code == null || code.isEmpty) return;
+    try {
+      await _repository.setPreferredLanguage(uid: uid, code: code);
+    } on Exception {
+      // Non-fatal; the profile simply has no language until the user picks one.
+    }
+  }
+
+  String? _deviceLanguageCode() {
+    try {
+      return WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -155,6 +185,23 @@ class ProfileController extends ChangeNotifier {
     return _repository.updateDisplayName(
       uid: _requireUid(),
       displayName: displayName,
+    );
+  }
+
+  /// Sets the user's preferred language code (e.g. `en`, `fr`, `zh-CN`).
+  /// Incoming messages are auto-translated into this language.
+  Future<void> setPreferredLanguage(String code) {
+    return _repository.setPreferredLanguage(
+      uid: _requireUid(),
+      code: code,
+    );
+  }
+
+  /// Turns auto-translation of incoming foreign-language messages on/off.
+  Future<void> setAutoTranslate(bool enabled) {
+    return _repository.setAutoTranslate(
+      uid: _requireUid(),
+      enabled: enabled,
     );
   }
 
