@@ -25,7 +25,9 @@ import 'reply_preview.dart';
 /// cancelled. Voice messages are recorded with long-press and sent on release
 /// (or cancelled by dragging left or tapping cancel). When
 /// [voiceEffectsEnabled] is true (admin only) a voice-changer button appears
-/// so the admin can pick a man/woman voice before recording.
+/// so the admin can pick a real neural voice. With a voice selected, typed
+/// text is sent as a voice note spoken in that voice, and a recording is
+/// transcribed and re-spoken in it.
 class ChatComposer extends StatefulWidget {
   const ChatComposer({
     super.key,
@@ -138,24 +140,175 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   void _sendText() {
+    if (_uploading) return;
     final String text = _input.text.trim();
     if (text.isEmpty) return;
     final ChatMessage? replyTo = widget.replyTo;
+    final VoiceEffectPreset? effect = widget.voiceEffectsEnabled
+        ? _voiceEffect
+        : null;
     _input.clear();
     _onInputChanged();
+    widget.onReplyCleared?.call();
+    if (effect != null) {
+      unawaited(
+        _sendVoiceFromText(text: text, effect: effect, replyTo: replyTo),
+      );
+      return;
+    }
     unawaited(
       widget.chat.sendMessage(
         conversationId: widget.conversationId,
         text: text,
         replyToId: replyTo?.id,
         replyToType: replyTo?.type.name,
-        replyToText:
-            replyTo?.type == MessageType.text ? replyTo?.text : null,
+        replyToText: replyTo?.type == MessageType.text ? replyTo?.text : null,
         replyToSender: widget.replyToSender,
         senderLang: widget.myLanguageCode,
       ),
     );
-    widget.onReplyCleared?.call();
+  }
+
+  // ----- Voice changer (type-to-speak / record-to-respeak) -----
+
+  /// Estimate of a synthesized clip's length. Edge renders at 48 kbps, so
+  /// 48_000 bits/s = 6_000 bytes/s; the waveform is decorative, so an
+  /// approximation is fine.
+  int _estimateVoiceDurationMs(Uint8List bytes) {
+    final int ms = bytes.length * 1000 ~/ 6000;
+    return ms.clamp(1, 5 * 60 * 1000);
+  }
+
+  /// Sends [text] as a voice note spoken by [effect] (type-to-speak).
+  Future<void> _sendVoiceFromText({
+    required String text,
+    required VoiceEffectPreset effect,
+    required ChatMessage? replyTo,
+  }) async {
+    final ChatController chat = widget.chat;
+    if (mounted) {
+      setState(() {
+        _uploading = true;
+        _uploadProgress = null;
+      });
+    }
+    try {
+      final VoiceSynthesisResult synth = await chat.chatAi.synthesizeVoice(
+        voiceName: effect.edgeVoiceName,
+        text: text,
+      );
+      final String messageId = chat.newMessageId();
+      final MediaUploadTask task = await chat.uploadChatMedia(
+        conversationId: widget.conversationId,
+        messageId: messageId,
+        bytes: synth.audioBytes,
+        contentType: synth.contentType,
+        fileName: 'voice_${effect.id}.mp3',
+      );
+      final String url = await task.url;
+      if (!mounted) return;
+      await chat.sendMediaMessage(
+        conversationId: widget.conversationId,
+        messageId: messageId,
+        media: MessageMedia(
+          type: MessageType.voice,
+          url: url,
+          durationMs: _estimateVoiceDurationMs(synth.audioBytes),
+          mimeType: synth.contentType,
+          fileName: 'voice_${effect.id}.mp3',
+          sizeBytes: synth.audioBytes.length,
+          voiceEffect: effect.id,
+        ),
+        replyToId: replyTo?.id,
+        replyToType: replyTo?.type.name,
+        replyToText: replyTo?.type == MessageType.text ? replyTo?.text : null,
+        replyToSender: widget.replyToSender,
+        voiceEffect: effect.id,
+      );
+    } on ChatAiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not create the voice message. Try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploading = false;
+          _uploadProgress = null;
+        });
+      }
+    }
+  }
+
+  /// Re-speaks a recorded clip in [effect]'s voice (record-to-respeak): the
+  /// edge function transcribes the clip (Whisper) and synthesizes the voice.
+  Future<void> _sendVoiceWithEffect({
+    required RecordedVoice clip,
+    required VoiceEffectPreset effect,
+  }) async {
+    final ChatController chat = widget.chat;
+    if (mounted) {
+      setState(() {
+        _uploading = true;
+        _uploadProgress = null;
+      });
+    }
+    try {
+      final VoiceSynthesisResult synth = await chat.chatAi.synthesizeVoice(
+        voiceName: effect.edgeVoiceName,
+        audioBytes: clip.bytes,
+      );
+      final String messageId = chat.newMessageId();
+      final MediaUploadTask task = await chat.uploadChatMedia(
+        conversationId: widget.conversationId,
+        messageId: messageId,
+        bytes: synth.audioBytes,
+        contentType: synth.contentType,
+        fileName: 'voice_${effect.id}.mp3',
+      );
+      final String url = await task.url;
+      if (!mounted) return;
+      await chat.sendMediaMessage(
+        conversationId: widget.conversationId,
+        messageId: messageId,
+        media: MessageMedia(
+          type: MessageType.voice,
+          url: url,
+          durationMs: _estimateVoiceDurationMs(synth.audioBytes),
+          mimeType: synth.contentType,
+          fileName: 'voice_${effect.id}.mp3',
+          sizeBytes: synth.audioBytes.length,
+          voiceEffect: effect.id,
+        ),
+        voiceEffect: effect.id,
+      );
+    } on ChatAiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not create the voice message. Try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploading = false;
+          _uploadProgress = null;
+        });
+      }
+    }
   }
 
   /// Inserts [emoji] at the current cursor position and tracks it as a recent.
@@ -163,10 +316,12 @@ class _ChatComposerState extends State<ChatComposer> {
     final TextEditingValue value = _input.value;
     final int start = value.selection.baseOffset;
     final int end = value.selection.extentOffset;
-    final int from =
-        start >= 0 && end >= 0 && start <= end ? start : value.text.length;
-    final int to =
-        end >= 0 && end <= value.text.length ? end : value.text.length;
+    final int from = start >= 0 && end >= 0 && start <= end
+        ? start
+        : value.text.length;
+    final int to = end >= 0 && end <= value.text.length
+        ? end
+        : value.text.length;
     final String text = value.text.replaceRange(from, to, emoji);
     _input.value = TextEditingValue(
       text: text,
@@ -205,9 +360,9 @@ class _ChatComposerState extends State<ChatComposer> {
       );
     } on ChatAiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
       return;
     } on Exception {
       if (!mounted) return;
@@ -254,8 +409,9 @@ class _ChatComposerState extends State<ChatComposer> {
                     Expanded(
                       child: Text(
                         'Translated to $targetName',
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -306,8 +462,7 @@ class _ChatComposerState extends State<ChatComposer> {
         text: translated,
         replyToId: replyTo?.id,
         replyToType: replyTo?.type.name,
-        replyToText:
-            replyTo?.type == MessageType.text ? replyTo?.text : null,
+        replyToText: replyTo?.type == MessageType.text ? replyTo?.text : null,
         replyToSender: widget.replyToSender,
         senderLang: widget.myLanguageCode,
         originalText: original,
@@ -339,7 +494,9 @@ class _ChatComposerState extends State<ChatComposer> {
                       color: const Color(0xFF008069),
                       label: 'Gallery',
                       value: const _PickChoice(
-                          _PickKind.image, ChatMediaSource.gallery),
+                        _PickKind.image,
+                        ChatMediaSource.gallery,
+                      ),
                     ),
                     _attachTile(
                       context,
@@ -347,7 +504,9 @@ class _ChatComposerState extends State<ChatComposer> {
                       color: const Color(0xFFE5422B),
                       label: 'Camera',
                       value: const _PickChoice(
-                          _PickKind.image, ChatMediaSource.camera),
+                        _PickKind.image,
+                        ChatMediaSource.camera,
+                      ),
                     ),
                     _attachTile(
                       context,
@@ -355,7 +514,9 @@ class _ChatComposerState extends State<ChatComposer> {
                       color: const Color(0xFF5B66C7),
                       label: 'Video',
                       value: const _PickChoice(
-                          _PickKind.video, ChatMediaSource.gallery),
+                        _PickKind.video,
+                        ChatMediaSource.gallery,
+                      ),
                     ),
                     _attachTile(
                       context,
@@ -363,7 +524,9 @@ class _ChatComposerState extends State<ChatComposer> {
                       color: const Color(0xFF4A9E5F),
                       label: 'Camera video',
                       value: const _PickChoice(
-                          _PickKind.video, ChatMediaSource.camera),
+                        _PickKind.video,
+                        ChatMediaSource.camera,
+                      ),
                     ),
                   ],
                 ),
@@ -419,7 +582,9 @@ class _ChatComposerState extends State<ChatComposer> {
       if (!status.isGranted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Camera permission is needed to take photos.')),
+            const SnackBar(
+              content: Text('Camera permission is needed to take photos.'),
+            ),
           );
         }
         return;
@@ -476,7 +641,9 @@ class _ChatComposerState extends State<ChatComposer> {
     } on Exception {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not pick that media. Try again.')),
+          const SnackBar(
+            content: Text('Could not pick that media. Try again.'),
+          ),
         );
       }
     }
@@ -493,7 +660,9 @@ class _ChatComposerState extends State<ChatComposer> {
         'Gallery permission is needed to pick videos.',
       _ => 'Could not open that media source.',
     };
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _sendAttachment() async {
@@ -610,7 +779,9 @@ class _ChatComposerState extends State<ChatComposer> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Microphone permission is needed to record voice messages.'),
+            content: Text(
+              'Microphone permission is needed to record voice messages.',
+            ),
           ),
         );
       }
@@ -627,6 +798,7 @@ class _ChatComposerState extends State<ChatComposer> {
       return;
     }
     if (!mounted) return;
+    _inputFocus.unfocus();
     setState(() {
       _recording = true;
       _cancelArmed = false;
@@ -670,6 +842,11 @@ class _ChatComposerState extends State<ChatComposer> {
     });
     final RecordedVoice? clip = voice;
     if (clip != null && clip.durationMs > 0) {
+      final VoiceEffectPreset? effect = _voiceEffect;
+      if (widget.voiceEffectsEnabled && effect != null) {
+        await _sendVoiceWithEffect(clip: clip, effect: effect);
+        return;
+      }
       setState(() {
         _attachment = _ComposerAttachment(
           messageId: chat.newMessageId(),
@@ -716,62 +893,78 @@ class _ChatComposerState extends State<ChatComposer> {
             if (widget.voiceEffectsEnabled && _voiceEffect != null)
               _VoiceEffectBanner(
                 effect: _voiceEffect!,
+                uploading: _uploading && _attachment == null,
                 onClear: () => setState(() => _voiceEffect = null),
               ),
-            if (_recording)
-              _RecordingPanel(
-                elapsedSeconds: _recordElapsedSeconds,
-                cancelArmed: _cancelArmed,
-                onCancel: () {
-                  setState(() => _cancelArmed = true);
-                  unawaited(_stopRecording(shouldSend: false));
-                },
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 8, 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    IconButton(
-                      tooltip: 'Attach',
-                      onPressed: _uploading ? null : _showAttachSheet,
-                      icon: const Icon(Icons.add_circle_outline_rounded),
-                      color: scheme.primary,
-                    ),
-                    _buildEmojiButton(context),
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        focusNode: _inputFocus,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        onChanged: (_) => _onInputChanged(),
-                        onSubmitted: (_) => _sendText(),
-                        decoration: InputDecoration(
-                          hintText: 'Message',
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHighest,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(22),
-                            borderSide: BorderSide.none,
+            Stack(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 8, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      IconButton(
+                        tooltip: 'Attach',
+                        onPressed: _uploading ? null : _showAttachSheet,
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        color: scheme.primary,
+                      ),
+                      _buildEmojiButton(context),
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          focusNode: _inputFocus,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.newline,
+                          onChanged: (_) => _onInputChanged(),
+                          onSubmitted: (_) => _sendText(),
+                          decoration: InputDecoration(
+                            hintText:
+                                widget.voiceEffectsEnabled &&
+                                    _voiceEffect != null
+                                ? 'Type a message to send in '
+                                      '${_voiceEffect!.label}\u2019s voice'
+                                : 'Message',
+                            filled: true,
+                            fillColor: scheme.surfaceContainerHighest,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(22),
+                              borderSide: BorderSide.none,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    if (_canSend) _buildTranslateButton(context),
-                    if (widget.voiceEffectsEnabled)
-                      _buildVoiceEffectButton(context),
-                    _buildSendMicToggle(context),
-                  ],
+                      const SizedBox(width: 6),
+                      if (_canSend) _buildTranslateButton(context),
+                      if (widget.voiceEffectsEnabled)
+                        _buildVoiceEffectButton(context),
+                      _buildSendMicToggle(context),
+                    ],
+                  ),
                 ),
-              ),
-            if (_emojiOpen && !_recording)
-              _buildEmojiPanel(context),
+                if (_recording)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {},
+                      child: _RecordingPanel(
+                        elapsedSeconds: _recordElapsedSeconds,
+                        cancelArmed: _cancelArmed,
+                        onCancel: () {
+                          setState(() => _cancelArmed = true);
+                          unawaited(_stopRecording(shouldSend: false));
+                        },
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (_emojiOpen && !_recording) _buildEmojiPanel(context),
           ],
         ),
       ),
@@ -831,10 +1024,19 @@ class _ChatComposerState extends State<ChatComposer> {
   Widget _buildSendMicToggle(BuildContext context) {
     final bool canSend = _canSend || _attachment != null;
     if (canSend) {
+      final bool voiceSelected =
+          widget.voiceEffectsEnabled && _voiceEffect != null;
       return IconButton.filled(
-        tooltip: _attachment != null ? 'Send attachment' : 'Send',
-        onPressed:
-            _attachment != null ? _sendAttachment : _sendText,
+        tooltip: _attachment != null
+            ? 'Send attachment'
+            : voiceSelected
+            ? 'Send as voice message'
+            : 'Send',
+        onPressed: _uploading
+            ? null
+            : _attachment != null
+            ? _sendAttachment
+            : _sendText,
         icon: const Icon(Icons.send_rounded),
       );
     }
@@ -857,7 +1059,6 @@ class _ChatComposerState extends State<ChatComposer> {
       },
       onLongPressCancel: () => unawaited(_stopRecording(shouldSend: false)),
       child: IconButton(
-        tooltip: 'Hold to record a voice message',
         onPressed: () {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -880,7 +1081,7 @@ class _ChatComposerState extends State<ChatComposer> {
     final VoiceEffectPreset? selected = _voiceEffect;
     return IconButton(
       tooltip: selected == null
-          ? 'Voice changer: pick a man or woman voice'
+          ? 'Voice changer: pick a real human voice'
           : 'Voice: ${selected.label} \u00b7 tap to change',
       onPressed: _uploading ? null : _showVoiceEffectPicker,
       icon: Icon(
@@ -899,8 +1100,9 @@ class _ChatComposerState extends State<ChatComposer> {
       showDragHandle: true,
       builder: (BuildContext context) {
         Widget section(VoiceGender gender) {
-          final List<VoiceEffectPreset> presets =
-              gender == VoiceGender.man ? manVoicePresets : womanVoicePresets;
+          final List<VoiceEffectPreset> presets = gender == VoiceGender.man
+              ? manVoicePresets
+              : womanVoicePresets;
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -908,27 +1110,25 @@ class _ChatComposerState extends State<ChatComposer> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
                 child: Text(
-                  gender == VoiceGender.man ? 'Man voices' : 'Woman voices',
+                  gender == VoiceGender.man ? 'Male voices' : 'Female voices',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               for (final VoiceEffectPreset preset in presets)
                 ListTile(
                   leading: Icon(
-                    preset.isMan
-                        ? Icons.man_rounded
-                        : Icons.woman_rounded,
+                    preset.isMan ? Icons.man_rounded : Icons.woman_rounded,
                     color: scheme.primary,
                   ),
                   title: Text(preset.label),
                   subtitle: Text(
-                    preset.isMan ? 'Deepens your voice' : 'Raises your voice',
+                    preset.description,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                   trailing: current?.id == preset.id
                       ? Icon(Icons.check_rounded, color: scheme.primary)
@@ -947,18 +1147,21 @@ class _ChatComposerState extends State<ChatComposer> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   child: Text(
-                    'Pick a voice for your next voice message. Everyone who '
-                    'plays it will hear it with this voice.',
+                    'Pick a real human voice. Type a message to send it as a '
+                    'voice note in this voice, or record and it will be '
+                    're-spoken. Everyone who plays it hears this voice.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 section(VoiceGender.man),
                 section(VoiceGender.woman),
                 ListTile(
-                  leading: Icon(Icons.voice_over_off_rounded,
-                      color: scheme.onSurfaceVariant),
+                  leading: Icon(
+                    Icons.voice_over_off_rounded,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   title: const Text('No voice changer'),
                   trailing: current == null
                       ? Icon(Icons.check_rounded, color: scheme.primary)
@@ -1045,9 +1248,17 @@ class _ReplyBanner extends StatelessWidget {
 
 /// Banner shown above the input while a voice-changer voice is selected.
 class _VoiceEffectBanner extends StatelessWidget {
-  const _VoiceEffectBanner({required this.effect, required this.onClear});
+  const _VoiceEffectBanner({
+    required this.effect,
+    required this.uploading,
+    required this.onClear,
+  });
 
   final VoiceEffectPreset effect;
+
+  /// True while the app is synthesizing/uploading a voice message.
+  final bool uploading;
+
   final VoidCallback onClear;
 
   @override
@@ -1059,15 +1270,27 @@ class _VoiceEffectBanner extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
       child: Row(
         children: <Widget>[
-          Icon(
-            effect.isMan ? Icons.man_rounded : Icons.woman_rounded,
-            size: 18,
-            color: scheme.primary,
-          ),
+          if (uploading)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            Icon(
+              effect.isMan ? Icons.man_rounded : Icons.woman_rounded,
+              size: 18,
+              color: scheme.primary,
+            ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Voice changer: ${effect.label}',
+              uploading
+                  ? 'Creating voice message\u2026'
+                  : 'Voice: ${effect.label}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -1077,7 +1300,7 @@ class _VoiceEffectBanner extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: onClear,
+            onPressed: uploading ? null : onClear,
             child: const Text('Off'),
           ),
         ],
@@ -1163,8 +1386,9 @@ class _AttachmentPreview extends StatelessWidget {
           width: 46,
           height: 46,
           fit: BoxFit.cover,
-          errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
-              _iconThumb(scheme),
+          errorBuilder:
+              (BuildContext context, Object error, StackTrace? stack) =>
+                  _iconThumb(scheme),
         ),
       );
     } else {
@@ -1192,16 +1416,18 @@ class _AttachmentPreview extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       attachment.label ?? 'Attachment',
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       detail,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                     if (uploading) ...<Widget>[
                       const SizedBox(height: 6),
@@ -1216,10 +1442,7 @@ class _AttachmentPreview extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               if (!uploading)
-                TextButton(
-                  onPressed: onSend,
-                  child: const Text('Send'),
-                ),
+                TextButton(onPressed: onSend, child: const Text('Send')),
               IconButton(
                 tooltip: uploading ? 'Cancel upload' : 'Remove attachment',
                 onPressed: onCancel,
@@ -1254,8 +1477,9 @@ class _AttachmentPreview extends StatelessWidget {
   }
 
   String _describe(_ComposerAttachment a) {
-    final String size =
-        a.sizeBytes == null ? '' : '${_formatBytes(a.sizeBytes!)} \u00b7 ';
+    final String size = a.sizeBytes == null
+        ? ''
+        : '${_formatBytes(a.sizeBytes!)} \u00b7 ';
     if (a.durationMs != null && a.type != MessageType.image) {
       return '$size${formatDuration(Duration(milliseconds: a.durationMs!))}';
     }
@@ -1297,8 +1521,9 @@ class _RecordingPanel extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             elapsed,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(width: 12),
           Icon(
@@ -1314,14 +1539,12 @@ class _RecordingPanel extends StatelessWidget {
                   : 'Release to send \u00b7 slide left to cancel',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ),
-          TextButton(
-            onPressed: onCancel,
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: onCancel, child: const Text('Cancel')),
         ],
       ),
     );

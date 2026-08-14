@@ -85,6 +85,15 @@ class FakeAuthService implements AuthService {
     _currentUser = null;
     _changes.add(null);
   }
+
+  int deleteAccountCalls = 0;
+
+  @override
+  Future<void> deleteAccount() async {
+    deleteAccountCalls++;
+    _currentUser = null;
+    _changes.add(null);
+  }
 }
 
 /// An in-memory [ProfileRepository] for widget tests.
@@ -209,8 +218,10 @@ class FakeProfileRepository implements ProfileRepository {
   }) async {
     final UserProfile? existing = profiles[uid];
     if (existing == null) return;
-    final UserProfile updated =
-        existing.copyWith(displayName: displayName, updatedAt: DateTime.now());
+    final UserProfile updated = existing.copyWith(
+      displayName: displayName,
+      updatedAt: DateTime.now(),
+    );
     profiles[uid] = updated;
     _controllerFor(uid).add(updated);
   }
@@ -260,8 +271,10 @@ class FakeProfileRepository implements ProfileRepository {
   }) async {
     final UserProfile? existing = profiles[uid];
     if (existing == null) return;
-    final UserProfile updated =
-        existing.copyWith(photoURL: photoURL, updatedAt: DateTime.now());
+    final UserProfile updated = existing.copyWith(
+      photoURL: photoURL,
+      updatedAt: DateTime.now(),
+    );
     profiles[uid] = updated;
     _controllerFor(uid).add(updated);
   }
@@ -276,10 +289,7 @@ class FakeProfileRepository implements ProfileRepository {
   }
 
   @override
-  Future<void> setPresence({
-    required String uid,
-    required bool online,
-  }) async {
+  Future<void> setPresence({required String uid, required bool online}) async {
     final UserProfile? existing = profiles[uid];
     if (existing == null) return;
     final UserProfile updated = existing.copyWith(
@@ -369,14 +379,15 @@ class FakeProfileRepository implements ProfileRepository {
 
   @override
   Stream<List<Contact>> watchContacts(String ownerUid) {
-    return Stream<List<Contact>>.multi(
-      (StreamController<List<Contact>> controller) {
-        controller.add(_contactsOf(ownerUid));
-        final StreamSubscription<List<Contact>> sub =
-            _contactControllerFor(ownerUid).stream.listen(controller.add);
-        controller.onCancel = () => sub.cancel();
-      },
-    );
+    return Stream<List<Contact>>.multi((
+      StreamController<List<Contact>> controller,
+    ) {
+      controller.add(_contactsOf(ownerUid));
+      final StreamSubscription<List<Contact>> sub = _contactControllerFor(
+        ownerUid,
+      ).stream.listen(controller.add);
+      controller.onCancel = () => sub.cancel();
+    });
   }
 }
 
@@ -467,7 +478,7 @@ class FakeConversationData {
 /// write is emitted to watchers (like Firestore snapshots).
 class FakeChatRepository implements ChatRepository {
   FakeChatRepository({FakeProfileRepository? profileRepository})
-      : profileRepository = profileRepository ?? FakeProfileRepository();
+    : profileRepository = profileRepository ?? FakeProfileRepository();
 
   /// Used to resolve peer profiles and the contact check.
   final FakeProfileRepository profileRepository;
@@ -479,8 +490,7 @@ class FakeChatRepository implements ChatRepository {
   final Set<String> registeredTokens = <String>{};
 
   final Map<String, StreamController<List<Conversation>>>
-      _conversationControllers =
-      <String, StreamController<List<Conversation>>>{};
+  _conversationControllers = <String, StreamController<List<Conversation>>>{};
   final Map<String, StreamController<List<ChatMessage>>> _messageControllers =
       <String, StreamController<List<ChatMessage>>>{};
 
@@ -494,7 +504,8 @@ class FakeChatRepository implements ChatRepository {
   }
 
   StreamController<List<ChatMessage>> _messageControllerFor(
-      String conversationId) {
+    String conversationId,
+  ) {
     return _messageControllers.putIfAbsent(
       conversationId,
       () => StreamController<List<ChatMessage>>.broadcast(),
@@ -518,9 +529,12 @@ class FakeChatRepository implements ChatRepository {
   }
 
   List<ChatMessage> _sortedMessages(String conversationId) {
-    final List<ChatMessage> list = List<ChatMessage>.of(
-        messages[conversationId] ?? const <ChatMessage>[])
-      ..sort((ChatMessage a, ChatMessage b) => a.createdAt.compareTo(b.createdAt));
+    final List<ChatMessage> list =
+        List<ChatMessage>.of(messages[conversationId] ?? const <ChatMessage>[])
+          ..sort(
+            (ChatMessage a, ChatMessage b) =>
+                a.createdAt.compareTo(b.createdAt),
+          );
     return list;
   }
 
@@ -528,23 +542,27 @@ class FakeChatRepository implements ChatRepository {
     final List<Conversation> result = <Conversation>[];
     for (final FakeConversationData data in conversations.values) {
       if (!data.participantIds.contains(uid)) continue;
-      final String peerUid =
-          data.participantIds[0] == uid ? data.participantIds[1] : data.participantIds[0];
-      final UserProfile peer = profileRepository.profiles[peerUid] ??
+      final String peerUid = data.participantIds[0] == uid
+          ? data.participantIds[1]
+          : data.participantIds[0];
+      final UserProfile peer =
+          profileRepository.profiles[peerUid] ??
           UserProfile(uid: peerUid, username: peerUid, displayName: '');
-      result.add(Conversation(
-        id: data.id,
-        peer: peer,
-        lastMessageText: data.lastMessageText,
-        lastMessageAt: data.lastMessageAt,
-        lastSenderUid: data.lastSenderUid,
-        lastSenderName: data.lastSenderName,
-        unreadCount: data.unreadCounts[uid] ?? 0,
-        typingUid: data.typingUid,
-        typingUntil: data.typingUntil,
-        lastMessageType: data.lastMessageType,
-        lastMessageDurationMs: data.lastMessageDurationMs,
-      ));
+      result.add(
+        Conversation(
+          id: data.id,
+          peer: peer,
+          lastMessageText: data.lastMessageText,
+          lastMessageAt: data.lastMessageAt,
+          lastSenderUid: data.lastSenderUid,
+          lastSenderName: data.lastSenderName,
+          unreadCount: data.unreadCounts[uid] ?? 0,
+          typingUid: data.typingUid,
+          typingUntil: data.typingUntil,
+          lastMessageType: data.lastMessageType,
+          lastMessageDurationMs: data.lastMessageDurationMs,
+        ),
+      );
     }
     result.sort((Conversation a, Conversation b) {
       final DateTime? at = a.lastMessageAt;
@@ -567,7 +585,9 @@ class FakeChatRepository implements ChatRepository {
   Stream<List<Conversation>> watchConversations(String uid) {
     // Replays the current state to every new listener and forwards live
     // updates, mirroring how Firestore snapshots behave in production.
-    return Stream<List<Conversation>>.multi((StreamController<List<Conversation>> controller) {
+    return Stream<List<Conversation>>.multi((
+      StreamController<List<Conversation>> controller,
+    ) {
       controller.add(_viewOf(uid));
       final StreamSubscription<List<Conversation>> sub =
           _conversationControllerFor(uid).stream.listen(controller.add);
@@ -702,16 +722,19 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
-  Stream<List<ChatMessage>> watchMessages(String conversationId,
-      {int limit = 100}) {
-    return Stream<List<ChatMessage>>.multi(
-      (StreamController<List<ChatMessage>> controller) {
-        controller.add(_sortedMessages(conversationId));
-        final StreamSubscription<List<ChatMessage>> sub =
-            _messageControllerFor(conversationId).stream.listen(controller.add);
-        controller.onCancel = () => sub.cancel();
-      },
-    );
+  Stream<List<ChatMessage>> watchMessages(
+    String conversationId, {
+    int limit = 100,
+  }) {
+    return Stream<List<ChatMessage>>.multi((
+      StreamController<List<ChatMessage>> controller,
+    ) {
+      controller.add(_sortedMessages(conversationId));
+      final StreamSubscription<List<ChatMessage>> sub = _messageControllerFor(
+        conversationId,
+      ).stream.listen(controller.add);
+      controller.onCancel = () => sub.cancel();
+    });
   }
 
   @override
@@ -720,9 +743,9 @@ class FakeChatRepository implements ChatRepository {
     ChatMessage before, {
     int limit = 50,
   }) async {
-    final List<ChatMessage> list = _sortedMessages(conversationId)
-        .where((ChatMessage m) => m.createdAt.isBefore(before.createdAt))
-        .toList();
+    final List<ChatMessage> list = _sortedMessages(
+      conversationId,
+    ).where((ChatMessage m) => m.createdAt.isBefore(before.createdAt)).toList();
     if (list.length <= limit) return list;
     return list.sublist(list.length - limit);
   }
@@ -931,26 +954,18 @@ class FakeVoicePlayer implements VoicePlayer {
       StreamController<Duration>.broadcast();
   final StreamController<Duration?> _duration =
       StreamController<Duration?>.broadcast();
-  final StreamController<bool> _playing =
-      StreamController<bool>.broadcast();
-  final StreamController<bool> _loading =
-      StreamController<bool>.broadcast();
+  final StreamController<bool> _playing = StreamController<bool>.broadcast();
+  final StreamController<bool> _loading = StreamController<bool>.broadcast();
 
   String? url;
   int playCalls = 0;
   int pauseCalls = 0;
-  double? pitch;
 
   @override
   Future<void> load(String url) async {
     this.url = url;
     if (!_duration.isClosed) _duration.add(const Duration(seconds: 30));
     if (!_loading.isClosed) _loading.add(false);
-  }
-
-  @override
-  Future<void> setPitch(double pitch) async {
-    this.pitch = pitch;
   }
 
   @override
@@ -993,8 +1008,9 @@ class FakeVoicePlayer implements VoicePlayer {
 
 /// A fake [VideoPlaybackController] that renders a black placeholder.
 class FakeVideoPlaybackController implements VideoPlaybackController {
-  final ValueNotifier<Duration> positionNotifier =
-      ValueNotifier<Duration>(Duration.zero);
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
   bool _initialized = false;
   bool playing = false;
   Duration? _duration;
@@ -1030,8 +1046,10 @@ class FakeVideoPlaybackController implements VideoPlaybackController {
   Future<void> dispose() async => positionNotifier.dispose();
 
   @override
-  Widget buildView() =>
-      Container(color: const Color(0xFF000000), child: const Center(child: Text('video')));
+  Widget buildView() => Container(
+    color: const Color(0xFF000000),
+    child: const Center(child: Text('video')),
+  );
 
   @override
   bool get isInitialized => _initialized;
@@ -1058,8 +1076,7 @@ class FakeCallSignalingService implements CallSignalingService {
       <String, StreamController<String>>{};
   final Map<String, List<CallCandidate>> _candidates =
       <String, List<CallCandidate>>{};
-  final StreamController<void> _changes =
-      StreamController<void>.broadcast();
+  final StreamController<void> _changes = StreamController<void>.broadcast();
 
   int _nextId = 0;
 
@@ -1122,8 +1139,11 @@ class FakeCallSignalingService implements CallSignalingService {
   Future<void> acceptCall(String callId) async {
     final Call? call = _calls[callId];
     if (call == null) return;
-    _calls[callId] = _copy(call,
-        status: CallStatus.active, answeredAt: DateTime.now());
+    _calls[callId] = _copy(
+      call,
+      status: CallStatus.active,
+      answeredAt: DateTime.now(),
+    );
     _emit(callId);
   }
 
@@ -1131,10 +1151,12 @@ class FakeCallSignalingService implements CallSignalingService {
   Future<void> declineCall(String callId) async {
     final Call? call = _calls[callId];
     if (call == null) return;
-    _calls[callId] = _copy(call,
-        status: CallStatus.declined,
-        endedAt: DateTime.now(),
-        endedBy: call.calleeUid);
+    _calls[callId] = _copy(
+      call,
+      status: CallStatus.declined,
+      endedAt: DateTime.now(),
+      endedBy: call.calleeUid,
+    );
     _emit(callId);
   }
 
@@ -1142,8 +1164,12 @@ class FakeCallSignalingService implements CallSignalingService {
   Future<void> endCall(String callId, {required String byUid}) async {
     final Call? call = _calls[callId];
     if (call == null) return;
-    _calls[callId] = _copy(call,
-        status: CallStatus.ended, endedAt: DateTime.now(), endedBy: byUid);
+    _calls[callId] = _copy(
+      call,
+      status: CallStatus.ended,
+      endedAt: DateTime.now(),
+      endedBy: byUid,
+    );
     _emit(callId);
   }
 
@@ -1151,8 +1177,11 @@ class FakeCallSignalingService implements CallSignalingService {
   Future<void> markMissed(String callId) async {
     final Call? call = _calls[callId];
     if (call == null) return;
-    _calls[callId] =
-        _copy(call, status: CallStatus.missed, endedAt: DateTime.now());
+    _calls[callId] = _copy(
+      call,
+      status: CallStatus.missed,
+      endedAt: DateTime.now(),
+    );
     _emit(callId);
   }
 
@@ -1203,8 +1232,10 @@ class FakeCallSignalingService implements CallSignalingService {
   }
 
   @override
-  Stream<CallCandidate> watchCandidates(String callId,
-      {required String excludeSender}) {
+  Stream<CallCandidate> watchCandidates(
+    String callId, {
+    required String excludeSender,
+  }) {
     final List<CallCandidate> existing = _candidates[callId] ?? const [];
     final StreamController<CallCandidate> controller =
         StreamController<CallCandidate>.broadcast();
@@ -1215,8 +1246,10 @@ class FakeCallSignalingService implements CallSignalingService {
   }
 
   @override
-  Future<List<CallCandidate>> fetchCandidates(String callId,
-      {required String excludeSender}) async {
+  Future<List<CallCandidate>> fetchCandidates(
+    String callId, {
+    required String excludeSender,
+  }) async {
     final List<CallCandidate> all = _candidates[callId] ?? const [];
     return all
         .where((CallCandidate c) => c.senderUid != excludeSender)
@@ -1226,10 +1259,11 @@ class FakeCallSignalingService implements CallSignalingService {
   @override
   Future<List<Call>> fetchCallHistory({required String uid}) async {
     if (failRequests) throw Exception('call history load failed');
-    final List<Call> calls = _calls.values
-        .where((Call c) => c.callerUid == uid || c.calleeUid == uid)
-        .toList()
-      ..sort((Call a, Call b) => b.createdAt.compareTo(a.createdAt));
+    final List<Call> calls =
+        _calls.values
+            .where((Call c) => c.callerUid == uid || c.calleeUid == uid)
+            .toList()
+          ..sort((Call a, Call b) => b.createdAt.compareTo(a.createdAt));
     return calls;
   }
 
@@ -1250,8 +1284,9 @@ class FakeCallRtcController implements CallRtcController {
       RTCSessionDescription('sdp-offer', 'offer');
 
   @override
-  Future<RTCSessionDescription> createAnswer(RTCSessionDescription offer) async =>
-      RTCSessionDescription('sdp-answer', 'answer');
+  Future<RTCSessionDescription> createAnswer(
+    RTCSessionDescription offer,
+  ) async => RTCSessionDescription('sdp-answer', 'answer');
 
   @override
   Future<void> setRemoteDescription(RTCSessionDescription answer) async {}
@@ -1337,8 +1372,10 @@ class FakeAiAssistantService implements AiAssistantService {
   }) async {
     _maybeFail();
     final AiConversation conversation = _find(conversationId);
-    final AiConversation updated =
-        conversation.copyWith(provider: provider, updatedAt: DateTime.now());
+    final AiConversation updated = conversation.copyWith(
+      provider: provider,
+      updatedAt: DateTime.now(),
+    );
     _replace(updated);
     return updated;
   }
@@ -1354,7 +1391,8 @@ class FakeAiAssistantService implements AiAssistantService {
   Future<List<AiMessage>> fetchMessages(String conversationId) async {
     _maybeFail();
     return List<AiMessage>.unmodifiable(
-        messagesByConversation[conversationId] ?? const <AiMessage>[]);
+      messagesByConversation[conversationId] ?? const <AiMessage>[],
+    );
   }
 
   @override
@@ -1377,9 +1415,10 @@ class FakeAiAssistantService implements AiAssistantService {
       content: task == null ? reply : '$reply (${task.wireName})',
       createdAt: DateTime.now(),
     );
-    final List<AiMessage> list =
-        messagesByConversation.putIfAbsent(
-            conversationId, () => <AiMessage>[]);
+    final List<AiMessage> list = messagesByConversation.putIfAbsent(
+      conversationId,
+      () => <AiMessage>[],
+    );
     list.add(userMessage);
     list.add(assistantMessage);
     return AiChatResult(user: userMessage, assistant: assistantMessage);
@@ -1479,9 +1518,12 @@ class FakeStatusRepository implements StatusRepository {
         return b.createdAt.compareTo(a.createdAt);
       });
     }
-    final List<StatusGroup> groups = grouped.entries.map((MapEntry<String, List<StatusUpdate>> e) {
+    final List<StatusGroup> groups = grouped.entries.map((
+      MapEntry<String, List<StatusUpdate>> e,
+    ) {
       return StatusGroup(
-        author: profiles[e.key] ??
+        author:
+            profiles[e.key] ??
             UserProfile(uid: e.key, username: e.key, displayName: ''),
         statuses: e.value,
       );
@@ -1494,14 +1536,15 @@ class FakeStatusRepository implements StatusRepository {
 
   @override
   Stream<List<StatusGroup>> watchStatuses(String uid) {
-    return Stream<List<StatusGroup>>.multi(
-      (StreamController<List<StatusGroup>> controller) {
-        controller.add(_groupsFor(uid));
-        final StreamSubscription<List<StatusGroup>> sub =
-            _controllerFor(uid).stream.listen(controller.add);
-        controller.onCancel = () => sub.cancel();
-      },
-    );
+    return Stream<List<StatusGroup>>.multi((
+      StreamController<List<StatusGroup>> controller,
+    ) {
+      controller.add(_groupsFor(uid));
+      final StreamSubscription<List<StatusGroup>> sub = _controllerFor(
+        uid,
+      ).stream.listen(controller.add);
+      controller.onCancel = () => sub.cancel();
+    });
   }
 
   @override
@@ -1592,9 +1635,12 @@ class FakeStatusRepository implements StatusRepository {
   Future<List<StatusViewer>> fetchStatusViewers(String statusId) async {
     final Map<String, DateTime>? byUid = views[statusId];
     if (byUid == null) return const <StatusViewer>[];
-    final List<StatusViewer> result = byUid.entries.map((MapEntry<String, DateTime> e) {
+    final List<StatusViewer> result = byUid.entries.map((
+      MapEntry<String, DateTime> e,
+    ) {
       return StatusViewer(
-        profile: profiles[e.key] ??
+        profile:
+            profiles[e.key] ??
             UserProfile(uid: e.key, username: e.key, displayName: ''),
         viewedAt: e.value,
       );
@@ -1643,6 +1689,27 @@ class FakeChatAiService implements ChatAiService {
     return VoiceTranslationResult(
       transcript: 'transcript',
       translation: translation,
+    );
+  }
+
+  /// Audio bytes returned by [synthesizeVoice].
+  Uint8List synthAudioBytes = Uint8List.fromList(<int>[1, 2, 3, 4, 5, 6]);
+
+  /// Every synthesis call is recorded for assertions.
+  final List<({String voiceName, String? text, Uint8List? audioBytes})>
+  synthCalls = <({String voiceName, String? text, Uint8List? audioBytes})>[];
+
+  @override
+  Future<VoiceSynthesisResult> synthesizeVoice({
+    required String voiceName,
+    String? text,
+    Uint8List? audioBytes,
+  }) async {
+    if (failRequests) throw const ChatAiException('Voice synthesis failed');
+    synthCalls.add((voiceName: voiceName, text: text, audioBytes: audioBytes));
+    return VoiceSynthesisResult(
+      audioBytes: synthAudioBytes,
+      contentType: 'audio/mpeg',
     );
   }
 }

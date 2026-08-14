@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'chat_ai_service.dart';
@@ -44,6 +47,29 @@ class SupabaseChatAiService implements ChatAiService {
     return VoiceTranslationResult(
       transcript: map['transcript'] as String? ?? '',
       translation: map['translation'] as String? ?? '',
+    );
+  }
+
+  @override
+  Future<VoiceSynthesisResult> synthesizeVoice({
+    required String voiceName,
+    String? text,
+    Uint8List? audioBytes,
+  }) async {
+    final dynamic data = await _invoke(<String, dynamic>{
+      'action': 'synthesizeVoice',
+      'voiceName': voiceName,
+      if (text != null && text.trim().isNotEmpty) 'text': text,
+      if (audioBytes != null) 'audioBase64': base64Encode(audioBytes),
+    });
+    final Map<String, dynamic> map = data as Map<String, dynamic>;
+    final String audioBase64 = map['audioBase64'] as String? ?? '';
+    if (audioBase64.isEmpty) {
+      throw const ChatAiException('Could not create the voice message.');
+    }
+    return VoiceSynthesisResult(
+      audioBytes: base64Decode(audioBase64),
+      contentType: map['contentType'] as String? ?? 'audio/mpeg',
     );
   }
 

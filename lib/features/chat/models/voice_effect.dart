@@ -1,49 +1,117 @@
 /// Gender of a [VoiceEffectPreset] (the broad voice category).
 enum VoiceGender { man, woman }
 
-/// A named voice the admin can apply to a voice message.
+/// A real neural voice the admin can apply to a voice message.
 ///
-/// Each preset is just a playback transform: [pitch] is applied when the clip
-/// plays (lower = deeper "man" voices, higher = lighter "woman" voices). The
-/// [id] is the stable wire value persisted on the message, so everyone who
-/// plays the clip hears the same voice.
+/// Each preset names one of Microsoft Edge's free neural voices ([edgeVoiceName]).
+/// When an admin picks a voice, the app asks the `ai-assistant` edge function to
+/// synthesize the message in that voice (typed text is spoken directly; a
+/// recording is transcribed first with Whisper then re-spoken). The [id] is the
+/// stable wire value persisted on the message, so everyone who plays the clip
+/// hears the same voice.
 class VoiceEffectPreset {
   const VoiceEffectPreset({
     required this.id,
     required this.label,
     required this.gender,
-    required this.pitch,
+    required this.edgeVoiceName,
+    required this.description,
   });
 
   /// Stable id persisted as the message's `voice_effect` column.
   final String id;
 
-  /// Human-readable voice name (e.g. "Deep").
+  /// Human-readable voice name (e.g. "Guy").
   final String label;
 
   /// Whether this is a man or woman voice.
   final VoiceGender gender;
 
-  /// Pitch multiplier applied at playback (1.0 = unaltered).
-  final double pitch;
+  /// The Microsoft Edge neural voice short name (e.g. `en-US-GuyNeural`).
+  final String edgeVoiceName;
+
+  /// One-line description shown in the voice picker.
+  final String description;
 
   bool get isMan => gender == VoiceGender.man;
 }
 
 /// The man voice presets offered by the admin voice changer.
 const List<VoiceEffectPreset> manVoicePresets = <VoiceEffectPreset>[
-  VoiceEffectPreset(id: 'man_giant', label: 'Giant', gender: VoiceGender.man, pitch: 0.58),
-  VoiceEffectPreset(id: 'man_deep', label: 'Deep', gender: VoiceGender.man, pitch: 0.70),
-  VoiceEffectPreset(id: 'man_baritone', label: 'Baritone', gender: VoiceGender.man, pitch: 0.80),
-  VoiceEffectPreset(id: 'man_classic', label: 'Classic', gender: VoiceGender.man, pitch: 0.90),
+  VoiceEffectPreset(
+    id: 'voice_guy',
+    label: 'Guy',
+    gender: VoiceGender.man,
+    edgeVoiceName: 'en-US-GuyNeural',
+    description: 'Deep and confident',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_eric',
+    label: 'Eric',
+    gender: VoiceGender.man,
+    edgeVoiceName: 'en-US-EricNeural',
+    description: 'Smooth baritone',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_christopher',
+    label: 'Christopher',
+    gender: VoiceGender.man,
+    edgeVoiceName: 'en-US-ChristopherNeural',
+    description: 'Warm and deep',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_andrew',
+    label: 'Andrew',
+    gender: VoiceGender.man,
+    edgeVoiceName: 'en-US-AndrewNeural',
+    description: 'Clear and friendly',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_ryan',
+    label: 'Ryan',
+    gender: VoiceGender.man,
+    edgeVoiceName: 'en-GB-RyanNeural',
+    description: 'British accent',
+  ),
 ];
 
 /// The woman voice presets offered by the admin voice changer.
 const List<VoiceEffectPreset> womanVoicePresets = <VoiceEffectPreset>[
-  VoiceEffectPreset(id: 'woman_light', label: 'Light', gender: VoiceGender.woman, pitch: 1.06),
-  VoiceEffectPreset(id: 'woman_soft', label: 'Soft', gender: VoiceGender.woman, pitch: 1.12),
-  VoiceEffectPreset(id: 'woman_high', label: 'High', gender: VoiceGender.woman, pitch: 1.24),
-  VoiceEffectPreset(id: 'woman_bright', label: 'Bright', gender: VoiceGender.woman, pitch: 1.34),
+  VoiceEffectPreset(
+    id: 'voice_aria',
+    label: 'Aria',
+    gender: VoiceGender.woman,
+    edgeVoiceName: 'en-US-AriaNeural',
+    description: 'Bright and expressive',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_jenny',
+    label: 'Jenny',
+    gender: VoiceGender.woman,
+    edgeVoiceName: 'en-US-JennyNeural',
+    description: 'Soft and friendly',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_michelle',
+    label: 'Michelle',
+    gender: VoiceGender.woman,
+    edgeVoiceName: 'en-US-MichelleNeural',
+    description: 'Warm and conversational',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_natasha',
+    label: 'Natasha',
+    gender: VoiceGender.woman,
+    edgeVoiceName: 'en-AU-NatashaNeural',
+    description: 'Australian accent',
+  ),
+  VoiceEffectPreset(
+    id: 'voice_sonia',
+    label: 'Sonia',
+    gender: VoiceGender.woman,
+    edgeVoiceName: 'en-GB-SoniaNeural',
+    description: 'British accent',
+  ),
 ];
 
 /// All presets, man voices first.

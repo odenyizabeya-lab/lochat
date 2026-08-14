@@ -11,10 +11,6 @@ abstract interface class VoicePlayer {
   Future<void> stop();
   Future<void> dispose();
 
-  /// Applies a pitch multiplier (1.0 = unchanged, <1 deeper, >1 lighter).
-  /// Used by the admin voice changer; callers always set it before playing.
-  Future<void> setPitch(double pitch);
-
   /// Current playback position.
   Stream<Duration> get position;
 
@@ -47,9 +43,6 @@ class DeviceVoicePlayer implements VoicePlayer {
 
   @override
   Future<void> stop() => _player.stop();
-
-  @override
-  Future<void> setPitch(double pitch) => _player.setPitch(pitch);
 
   @override
   Future<void> dispose() => _player.dispose();

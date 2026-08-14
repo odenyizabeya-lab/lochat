@@ -12,10 +12,7 @@ abstract interface class AuthService {
   AuthUser? get currentUser;
 
   /// Creates an account and signs the user in immediately.
-  Future<void> createAccount({
-    required String email,
-    required String password,
-  });
+  Future<void> createAccount({required String email, required String password});
 
   Future<void> signInWithEmail({
     required String email,
@@ -25,4 +22,10 @@ abstract interface class AuthService {
   Future<void> sendPasswordReset({required String email});
 
   Future<void> signOut();
+
+  /// Permanently deletes the current user's account and all of their data.
+  ///
+  /// Throws on failure, in which case the user stays signed in. On success the
+  /// session is invalidated and the app returns to the welcome screen.
+  Future<void> deleteAccount();
 }

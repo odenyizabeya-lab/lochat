@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 
-/// The LoText logo mark: a rounded square with the brand gradient
-/// and a chat glyph.
+/// The LoText logo mark: a rounded square with the brand gradient, the white
+/// chat glyph, and the "LoText" wordmark centered beneath it.
 class LoTextLogo extends StatelessWidget {
   const LoTextLogo({super.key, this.size = 56});
 
@@ -30,7 +30,24 @@ class LoTextLogo extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(Icons.forum_rounded, color: Colors.white, size: size * 0.52),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.forum_rounded, color: Colors.white, size: size * 0.34),
+          SizedBox(height: size * 0.05),
+          Text(
+            AppConstants.appName,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

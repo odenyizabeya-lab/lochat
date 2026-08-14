@@ -7,7 +7,7 @@ import 'auth_user.dart';
 /// Production [AuthService] backed by Supabase Auth (GoTrue).
 class SupabaseAuthService implements AuthService {
   SupabaseAuthService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+    : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
   Stream<AuthUser?>? _stateStream;
@@ -54,6 +54,17 @@ class SupabaseAuthService implements AuthService {
   @override
   Future<void> signOut() async {
     await _client.auth.signOut();
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    // The delete-account edge function resolves the caller from the current
+    // JWT and permanently deletes the user (and all their data) with the
+    // service role. See supabase/functions/delete-account.
+    await _client.functions.invoke('delete-account', body: <String, dynamic>{});
+    // The user no longer exists on the server, so a global sign-out would 401.
+    // Clear the local session so the app returns to the welcome screen.
+    await _client.auth.signOut(scope: SignOutScope.local);
   }
 
   AuthUser? _fromUser(User? user) {

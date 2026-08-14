@@ -28,12 +28,19 @@
 //                                          -> transcribe (Whisper) + translate a
 //                                             voice message, returns
 //                                             { transcript, translation }
+//   synthesizeVoice { voiceName, text? | audioBase64? }
+//                                          -> voice changer: speaks [text], or
+//                                             transcribes [audioBase64] then
+//                                             re-speaks it, in Edge's free
+//                                             neural voice [voiceName]; returns
+//                                             { audioBase64, contentType }
 //
 // `task` switches the system prompt so the same endpoint powers normal chat and
 // the quick actions (write reply / rewrite / suggest replies / summarize /
 // translate).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "npm:msedge-tts@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -132,6 +139,89 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/// Transcribes [audioBuf] with OpenAI Whisper. Used by the `transcribe` and
+/// `synthesizeVoice` actions. Throws on failure or when no speech is detected.
+async function transcribeWithWhisper(
+  audioBuf: ArrayBuffer,
+  apiKey: string,
+): Promise<string> {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([audioBuf], { type: "audio/mp4" }),
+    "voice.m4a",
+  );
+  form.append("model", "whisper-1");
+  form.append("response_format", "json");
+
+  const whisperRes = await fetch(
+    "https://api.openai.com/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    },
+  );
+  const whisperData = await whisperRes.json();
+  if (!whisperRes.ok) {
+    throw new Error(
+      whisperData?.error?.message ?? "Could not transcribe the voice message",
+    );
+  }
+  return String(whisperData?.text ?? "").trim();
+}
+
+/// Synthesizes [text] with Microsoft Edge's free neural voices (no key, no
+/// cost) and returns the MP3 bytes. `msedge-tts` drives Edge's Read Aloud
+/// endpoint over a WebSocket, which only works from a server-side runtime.
+async function synthesizeEdgeTts(
+  voiceName: string,
+  text: string,
+): Promise<Uint8Array> {
+  const tts = new MsEdgeTTS();
+  await tts.setMetadata(
+    voiceName,
+    OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3,
+  );
+  const { audioStream } = await tts.toStream(text);
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of audioStream) {
+    const data = chunk as Uint8Array;
+    chunks.push(
+      new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    );
+  }
+  const total = chunks.reduce((size, chunk) => size + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -517,30 +607,14 @@ Deno.serve(async (req) => {
           }, 400);
         }
 
-        const form = new FormData();
-        form.append(
-          "file",
-          new Blob([audioBuf], { type: "audio/mp4" }),
-          "voice.m4a",
-        );
-        form.append("model", "whisper-1");
-        form.append("response_format", "json");
-
-        const whisperRes = await fetch(
-          "https://api.openai.com/v1/audio/transcriptions",
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${openaiKey}` },
-            body: form,
-          },
-        );
-        const whisperData = await whisperRes.json();
-        if (!whisperRes.ok) {
-          throw new Error(
-            whisperData?.error?.message ?? "Could not transcribe the voice message",
-          );
+        let transcript: string;
+        try {
+          transcript = await transcribeWithWhisper(audioBuf, openaiKey);
+        } catch {
+          return json({
+            error: "Could not transcribe the voice message",
+          }, 400);
         }
-        const transcript = String(whisperData?.text ?? "").trim();
         if (transcript === "") {
           return json(
             { error: "No speech was detected in the voice message" },
@@ -560,6 +634,72 @@ Deno.serve(async (req) => {
           transcript,
           translation: translation.trim(),
           targetLanguage,
+        });
+      }
+
+      case "synthesizeVoice": {
+        // Admin voice changer: turns typed text (or a recorded clip) into a
+        // real, human-sounding voice note. Synthesis uses Microsoft Edge's
+        // free neural voices (no key, no cost); the recorded path transcribes
+        // with Whisper first so the original words are re-spoken.
+        const voiceName = String(body.voiceName ?? "").trim();
+        if (voiceName === "") return json({ error: "No voice selected" }, 400);
+        const text = String(body.text ?? "").trim();
+        const audioBase64 = String(body.audioBase64 ?? "").trim();
+        if (text === "" && audioBase64 === "") {
+          return json({ error: "Nothing to speak" }, 400);
+        }
+
+        let spoken = text;
+        if (spoken === "") {
+          const openaiKey = await loadProviderKey("openai", admin);
+          if (!openaiKey) {
+            return json({
+              error:
+                "The OpenAI provider is not configured yet. Set its key in the Admin dashboard.",
+            }, 400);
+          }
+          let audioBuf: Uint8Array;
+          try {
+            audioBuf = base64ToBytes(audioBase64);
+          } catch {
+            return json({ error: "The recording could not be read" }, 400);
+          }
+          try {
+            spoken = await transcribeWithWhisper(
+              audioBuf.buffer as ArrayBuffer,
+              openaiKey,
+            );
+          } catch {
+            return json({
+              error: "Could not transcribe the voice message",
+            }, 400);
+          }
+        }
+        if (spoken.trim() === "") {
+          return json(
+            { error: "No speech was detected in the voice message" },
+            400,
+          );
+        }
+
+        let audioBytes: Uint8Array;
+        try {
+          audioBytes = await synthesizeEdgeTts(
+            voiceName,
+            spoken.trim().slice(0, 2000),
+          );
+        } catch {
+          return json({
+            error: "Could not create the voice. Try again in a moment.",
+          }, 502);
+        }
+        if (audioBytes.length === 0) {
+          return json({ error: "Could not create the voice. Try again." }, 502);
+        }
+        return json({
+          audioBase64: bytesToBase64(audioBytes),
+          contentType: "audio/mpeg",
         });
       }
 

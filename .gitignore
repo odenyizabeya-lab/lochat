@@ -47,6 +47,10 @@ app.*.map.json
 # Android build reports
 android/build/
 
+# Supabase CLI temp/linked state (never commit)
+supabase/.temp/
+supabase/supabase/
+
 # Release signing secrets (never commit)
 android/key.properties
 android/app/*.jks

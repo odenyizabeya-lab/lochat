@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// Thrown when an in-chat AI operation (translation) fails.
 class ChatAiException implements Exception {
   const ChatAiException(this.message);
@@ -33,6 +35,21 @@ class VoiceTranslationResult {
   final String translation;
 }
 
+/// The result of creating a voice-changer message: the synthesized audio to
+/// upload and send as the voice note.
+class VoiceSynthesisResult {
+  const VoiceSynthesisResult({
+    required this.audioBytes,
+    required this.contentType,
+  });
+
+  /// MP3 bytes of the synthesized speech (Microsoft Edge neural voice).
+  final Uint8List audioBytes;
+
+  /// MIME type of [audioBytes] (always `audio/mpeg` today).
+  final String contentType;
+}
+
 /// AI-backed helpers for the chat screen.
 ///
 /// Backed by the `ai-assistant` edge function (provider keys live on the
@@ -50,5 +67,14 @@ abstract interface class ChatAiService {
   Future<VoiceTranslationResult> translateVoice({
     required String audioUrl,
     required String targetLanguage,
+  });
+
+  /// Speaks [text] in the neural voice [voiceName] (type-to-speak), or — when
+  /// [audioBytes] holds a recording — transcribes it and re-speaks it in that
+  /// voice (record-to-respeak). Exactly one of [text]/[audioBytes] is set.
+  Future<VoiceSynthesisResult> synthesizeVoice({
+    required String voiceName,
+    String? text,
+    Uint8List? audioBytes,
   });
 }

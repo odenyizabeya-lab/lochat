@@ -13,7 +13,7 @@ import 'supabase_auth_service.dart';
 /// router listens to this controller to redirect users based on sign-in state.
 class AuthController extends ChangeNotifier {
   AuthController({AuthService? service})
-      : _service = service ?? SupabaseAuthService() {
+    : _service = service ?? SupabaseAuthService() {
     _subscription = _service.authStateChanges.listen(
       _onAuthStateChanged,
       onError: (Object error, StackTrace stackTrace) {
@@ -65,6 +65,8 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> signOut() => _service.signOut();
+
+  Future<void> deleteAccount() => _service.deleteAccount();
 
   @override
   void dispose() {

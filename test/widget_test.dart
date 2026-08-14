@@ -30,6 +30,8 @@ Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
   FakeAiAssistantService? aiService,
   FakeStatusRepository? statusRepository,
   FakeCallSignalingService? callSignalingService,
+  FakeChatAiService? chatAiService,
+  FakeVoiceRecorder? voiceRecorder,
 }) async {
   final FakeAuthService service = authService ?? FakeAuthService();
   final FakeProfileRepository profileRepo =
@@ -42,8 +44,12 @@ Future<(AuthController, ProfileController, FakeProfileRepository)> pumpApp(
     repository: profileRepo,
     photoPicker: photoPicker ?? FakePhotoPicker(),
   );
-  final ChatController chatController =
-      ChatController(auth: authController, repository: chatRepo);
+  final ChatController chatController = ChatController(
+    auth: authController,
+    repository: chatRepo,
+    chatAi: chatAiService,
+    voiceRecorder: voiceRecorder,
+  );
   final CallController callController = CallController(
     signaling: callSignalingService ?? FakeCallSignalingService(),
     rtcFactory: ({required bool isVideo}) => FakeCallRtcController(),

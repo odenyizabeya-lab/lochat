@@ -75,13 +75,10 @@ class VoiceMessageBubble extends StatelessWidget {
                   onTap: () {
                     final String? url = message.mediaUrl;
                     if (url == null) return;
-                    final VoiceEffectPreset? effect =
-                        voiceEffectPresetForId(message.voiceEffect);
                     unawaited(
                       player.toggle(
                         messageId: message.id,
                         url: url,
-                        pitch: effect?.pitch ?? 1.0,
                       ),
                     );
                   },

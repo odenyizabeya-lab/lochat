@@ -7,7 +7,7 @@
 #   supabase secrets set NOTIFY_WEBHOOK_SECRET=... FCM_PROJECT_ID=... \
 #     FCM_CLIENT_EMAIL=... "FCM_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----..."
 
-project_id = "lotext"
+project_id = "vydecyxnanqqwydmanky"
 
 [api]
 enabled = true
@@ -29,3 +29,8 @@ verify_jwt = true
 # instead.
 [functions.notify]
 verify_jwt = false
+
+# Called from Settings -> Delete account with the signed-in user's JWT, so the
+# caller must be verified. The global default is already true; this is explicit.
+[functions.delete-account]
+verify_jwt = true
