@@ -88,7 +88,20 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Image.asset(
+              'assets/logo.png',
+              width: 30,
+              height: 30,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+            const SizedBox(width: 8),
+            Text(widget.title),
+          ],
+        ),
         actions: <Widget>[
           IconButton(
             tooltip: 'Start a chat',

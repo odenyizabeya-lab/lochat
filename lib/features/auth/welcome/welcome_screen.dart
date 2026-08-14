@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/router/app_routes.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/lotext_brand.dart';
 import '../../../shared/widgets/lotext_button.dart';
 
@@ -28,15 +29,44 @@ class WelcomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   const SizedBox(height: 24),
-                  const LoTextBrand(size: 88, showWordmark: false),
+                  const LoTextBrand(size: 264, showWordmark: false),
                   const SizedBox(height: 28),
-                  Text(
-                    'Welcome to LoText',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
+                  Text.rich(
+                    TextSpan(
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                      children: <InlineSpan>[
+                        TextSpan(
+                          text: 'Welcome to ',
+                          style: const TextStyle(color: AppColors.brand),
+                        ),
+                        WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.brand,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              AppConstants.appName,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: theme
+                                    .textTheme.headlineMedium?.fontSize,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
                   Text(

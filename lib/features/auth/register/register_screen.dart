@@ -79,6 +79,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
+                    Center(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        width: 264,
+                        height: 264,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Create your account',
                       style: theme.textTheme.headlineSmall?.copyWith(

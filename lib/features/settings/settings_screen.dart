@@ -80,9 +80,12 @@ class SettingsScreen extends StatelessWidget {
                 child: Column(
                   children: <Widget>[
                     ListTile(
-                      leading: Icon(
-                        Icons.info_outline_rounded,
-                        color: scheme.primary,
+                      leading: Image.asset(
+                        'assets/logo.png',
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
                       ),
                       title: const Text('LoText'),
                       subtitle: const Text(

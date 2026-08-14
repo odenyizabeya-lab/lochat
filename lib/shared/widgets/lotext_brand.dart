@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
-import '../../core/theme/app_colors.dart';
 
-/// The LoText logo mark: a rounded square with the brand gradient, the white
-/// chat glyph, and the "LoText" wordmark centered beneath it.
+/// The LoText logo mark: the official logo image (a chat bubble containing
+/// the "LoText" wordmark).
 class LoTextLogo extends StatelessWidget {
   const LoTextLogo({super.key, this.size = 56});
 
@@ -12,49 +11,20 @@ class LoTextLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Image.asset(
+      'assets/logo.png',
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: AppColors.brandGradient,
-        ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.brand.withValues(alpha: 0.35),
-            blurRadius: size * 0.35,
-            offset: Offset(0, size * 0.12),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(Icons.forum_rounded, color: Colors.white, size: size * 0.34),
-          SizedBox(height: size * 0.05),
-          Text(
-            AppConstants.appName,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: size * 0.15,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.4,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
     );
   }
 }
 
-/// Logo mark plus the "LoText" wordmark, used on onboarding screens.
+/// Logo mark plus the "LoText" wordmark, used on onboarding screens. The logo
+/// image already contains the wordmark, so it is not repeated by default.
 class LoTextBrand extends StatelessWidget {
-  const LoTextBrand({super.key, this.size = 56, this.showWordmark = true});
+  const LoTextBrand({super.key, this.size = 56, this.showWordmark = false});
 
   final double size;
   final bool showWordmark;
