@@ -420,8 +420,24 @@ GoRouter createRouter({
       GoRoute(
         path: AppRoutes.adminChatRoom,
         name: 'admin-chat-room',
-        builder: (BuildContext context, GoRouterState state) =>
-            const AdminChatRoomScreen(),
+        builder: (BuildContext context, GoRouterState state) {
+          final ManagedAccountController? existing =
+              ManagedAccountScope.maybeOf(context);
+          final AuthController auth = AuthScope.of(context);
+          final ManagedAccountController controller =
+              existing ??
+              ManagedAccountController(
+                accountRepository: SupabaseManagedAccountRepository(),
+                chatRepository: SupabaseManagedChatRepository(),
+                adminUid: ProfileScope.of(context).profile?.uid ??
+                    auth.currentUser?.uid ??
+                    '',
+              )..load();
+          return ManagedAccountScope(
+            child: AdminChatRoomScreen(),
+            controller: controller,
+          );
+        },
       ),
       GoRoute(
         path: AppRoutes.adminAccounts,

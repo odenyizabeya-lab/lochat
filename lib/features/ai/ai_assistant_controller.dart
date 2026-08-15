@@ -40,7 +40,7 @@ class AiAssistantController extends ChangeNotifier {
   bool _sending = false;
   String? _sendingError;
 
-  AiProvider _provider = AiProvider.openai;
+  AiProvider _provider = AiProvider.gemini;
 
   /// The provider applied to new conversations.
   AiProvider get provider => _provider;
@@ -282,7 +282,7 @@ class AiAssistantController extends ChangeNotifier {
     _messagesError = null;
     _sending = false;
     _sendingError = null;
-    _provider = AiProvider.openai;
+    _provider = AiProvider.gemini;
   }
 
   @override

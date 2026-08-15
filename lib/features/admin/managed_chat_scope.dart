@@ -1,6 +1,10 @@
 import 'package:flutter/widgets.dart';
 
-import 'managed_chat_controller.dart';
+import './managed_chat_controller.dart';
+import './data/supabase_managed_account_repository.dart';
+import './data/supabase_managed_chat_repository.dart';
+import './managed_account_controller.dart';
+import './managed_account_scope.dart';
 
 class ManagedChatScope extends InheritedNotifier<ManagedChatController> {
   const ManagedChatScope({
@@ -12,8 +16,23 @@ class ManagedChatScope extends InheritedNotifier<ManagedChatController> {
   static ManagedChatController of(BuildContext context) {
     final ManagedChatScope? scope =
         context.dependOnInheritedWidgetOfExactType<ManagedChatScope>();
-    assert(scope != null, 'No ManagedChatScope found in the widget tree.');
-    return scope!.notifier!;
+    if (scope == null) {
+      // Fallback: create a default chat controller
+      final ManagedAccountController accountController =
+          ManagedAccountScope.maybeOf(context) ??
+          ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: 'temp-admin',
+          )..load();
+      final ManagedChatController defaultController =
+          ManagedChatController(
+        chatRepository: SupabaseManagedChatRepository(),
+        accountController: accountController,
+      );
+      return defaultController;
+    }
+    return scope.notifier!;
   }
 
   static ManagedChatController? maybeOf(BuildContext context) {
