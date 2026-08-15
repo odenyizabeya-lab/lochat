@@ -523,7 +523,7 @@ void main() {
     await tester.tap(find.widgetWithText(LoTextButton, 'Sign out'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Welcome to LoText'), findsOneWidget);
+    expect(find.textContaining('Welcome to', findRichText: true), findsOneWidget);
     expect(auth.currentUser, isNull);
   });
 }

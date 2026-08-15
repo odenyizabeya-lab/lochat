@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lotext/core/auth/auth_controller.dart';
+import 'package:lotext/core/auth/auth_scope.dart';
 import 'package:lotext/core/auth/auth_user.dart';
 import 'package:lotext/features/admin/admin_settings_screen.dart';
 import 'package:lotext/features/profile/models/user_profile.dart';
@@ -101,7 +102,7 @@ void main() {
       );
       addTearDown(profileController.dispose);
       addTearDown(auth.dispose);
-      await tester.binding.setSurfaceSize(const Size(412, 892));
+      await tester.binding.setSurfaceSize(const Size(412, 1800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       await tester.pumpWidget(MaterialApp(
@@ -138,6 +139,8 @@ void main() {
       final FakeAppConfigRepository repo = FakeAppConfigRepository();
       await _pumpAdminScreen(tester, repo);
 
+      await tester.scrollUntilVisible(find.text('Google Gemini'), 200);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Google Gemini'));
       await tester.pumpAndSettle();
       expect(find.text('Google Gemini key'), findsOneWidget);
@@ -158,6 +161,8 @@ void main() {
 
       final Finder anthropicRow =
           find.widgetWithText(ListTile, 'Anthropic');
+      await tester.scrollUntilVisible(anthropicRow, 200);
+      await tester.pumpAndSettle();
       await tester.tap(find.descendant(
         of: anthropicRow,
         matching: find.byTooltip('Remove the key'),
@@ -189,6 +194,106 @@ void main() {
 
       expect(find.text('OpenAI'), findsOneWidget);
     });
+
+    testWidgets('two-factor tile opens the manager and can set up an app',
+        (WidgetTester tester) async {
+      final FakeProfileRepository profileRepo = FakeProfileRepository()
+        ..seed(const UserProfile(
+          uid: 'test-uid',
+          username: 'admin',
+          displayName: 'Admin',
+          isAdmin: true,
+        ));
+      final FakeAuthService authService = FakeAuthService();
+      await _pumpAdminScreen(
+        tester,
+        FakeAppConfigRepository(profileRepository: profileRepo),
+        authService: authService,
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('Two-factor authentication'),
+        200,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Two-factor authentication'));
+      await tester.pumpAndSettle();
+
+      // Title appears in the tile and the dialog.
+      expect(find.text('Two-factor authentication'), findsNWidgets(2));
+      expect(find.text('Email code'), findsOneWidget);
+      expect(find.text('Set up'), findsOneWidget);
+      expect(authService.totpEnabled, isFalse);
+
+      await tester.tap(find.text('Set up'));
+      await tester.pumpAndSettle();
+      expect(find.text('Copy secret'), findsOneWidget);
+      expect(authService.totpEnabled, isTrue);
+
+      await tester.enterText(find.byType(TextFormField).last, '123456');
+      await tester.tap(find.text('Activate'));
+      await tester.pumpAndSettle();
+
+      // Back on the dialog with the authenticator marked as active.
+      expect(find.text('Set up'), findsNothing);
+      expect(find.byIcon(Icons.check_circle_rounded), findsNWidgets(2));
+    });
+
+    testWidgets('two-factor dialog reports an existing authenticator app',
+        (WidgetTester tester) async {
+      final FakeProfileRepository profileRepo = FakeProfileRepository()
+        ..seed(const UserProfile(
+          uid: 'test-uid',
+          username: 'admin',
+          displayName: 'Admin',
+          isAdmin: true,
+        ));
+      await _pumpAdminScreen(
+        tester,
+        FakeAppConfigRepository(profileRepository: profileRepo),
+        authService: FakeAuthService()..totpEnabled = true,
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('Two-factor authentication'),
+        200,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Two-factor authentication'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Email code'), findsOneWidget);
+      expect(find.text('Authenticator app'), findsOneWidget);
+      expect(find.text('Set up'), findsNothing);
+      expect(find.byIcon(Icons.check_circle_rounded), findsNWidgets(2));
+    });
+
+    testWidgets('admin can log out from the dashboard',
+        (WidgetTester tester) async {
+      final FakeProfileRepository profileRepo = FakeProfileRepository()
+        ..seed(const UserProfile(
+          uid: 'test-uid',
+          username: 'admin',
+          displayName: 'Admin',
+          isAdmin: true,
+        ));
+      final FakeAuthService authService = FakeAuthService(
+        initialUser: const AuthUser(uid: 'test-uid', email: 'ada@lotext.app'),
+      );
+      await _pumpAdminScreen(
+        tester,
+        FakeAppConfigRepository(profileRepository: profileRepo),
+        authService: authService,
+      );
+
+      expect(authService.currentUser, isNotNull);
+      await tester.scrollUntilVisible(find.text('Log out'), 200);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log out'));
+      await tester.pumpAndSettle();
+
+      expect(authService.currentUser, isNull);
+    });
   });
 }
 
@@ -216,12 +321,30 @@ Future<void> _openSettings(
 
 Future<void> _pumpAdminScreen(
   WidgetTester tester,
-  FakeAppConfigRepository repo,
-) async {
-  await tester.binding.setSurfaceSize(const Size(412, 892));
+  FakeAppConfigRepository repo, {
+  FakeAuthService? authService,
+}) async {
+  final AuthController auth = AuthController(
+    service: authService ?? FakeAuthService(),
+  );
+  final ProfileController profileController = ProfileController(
+    auth: auth,
+    repository: repo.profileRepository ?? FakeProfileRepository(),
+  );
+  addTearDown(profileController.dispose);
+  addTearDown(auth.dispose);
+  await tester.binding.setSurfaceSize(const Size(412, 1800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
-    MaterialApp(home: AdminSettingsScreen(repository: repo)),
+    AuthScope(
+      controller: auth,
+      child: MaterialApp(
+        home: ProfileScope(
+          controller: profileController,
+          child: AdminSettingsScreen(repository: repo),
+        ),
+      ),
+    ),
   );
   await tester.pumpAndSettle();
 }

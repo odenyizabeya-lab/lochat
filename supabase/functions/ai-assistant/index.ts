@@ -53,7 +53,7 @@ type ProviderName = "openai" | "anthropic" | "gemini";
 const MODELS: Record<ProviderName, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-3-5-haiku-latest",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-3.6-flash",
 };
 
 const KEYS: Record<ProviderName, string | undefined> = {
@@ -297,23 +297,27 @@ async function callGemini(
   system: string,
   turns: ChatTurn[],
 ): Promise<string> {
+  // The Interactions API replaced generateContent for new API keys. The request
+  // carries the whole conversation as a `steps` timeline and the reply comes
+  // back in the last `model_output` step.
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent`,
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey,
+        "Api-Revision": "2026-05-20",
       },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents: turns
+        model: MODELS.gemini,
+        system_instruction: system,
+        input: turns
           .filter((t) => t.role !== "system")
           .map((t) => ({
-            role: t.role === "assistant" ? "model" : "user",
-            parts: [{ text: t.content }],
+            type: t.role === "assistant" ? "model_output" : "user_input",
+            content: [{ type: "text", text: t.content }],
           })),
-        generationConfig: { maxOutputTokens: 1500 },
       }),
     },
   );
@@ -321,13 +325,21 @@ async function callGemini(
   if (!res.ok) {
     throw new Error(data?.error?.message ?? "Gemini request failed");
   }
-  const parts = data?.candidates?.[0]?.content?.parts;
-  if (Array.isArray(parts)) {
-    return parts
-      .map((p) => (typeof p?.text === "string" ? p.text : ""))
+  const steps: unknown[] = Array.isArray(data?.steps) ? data.steps : [];
+  let reply = "";
+  for (const step of steps) {
+    const s = step as { type?: string; content?: unknown[] };
+    if (s.type !== "model_output" || !Array.isArray(s.content)) continue;
+    reply = s.content
+      .map((p) => {
+        const item = p as { type?: string; text?: string };
+        return item.type === "text" && typeof item.text === "string"
+          ? item.text
+          : "";
+      })
       .join("");
   }
-  return "";
+  return reply;
 }
 
 async function generateReply(

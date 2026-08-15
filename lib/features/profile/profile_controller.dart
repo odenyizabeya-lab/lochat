@@ -104,6 +104,7 @@ class ProfileController extends ChangeNotifier {
   void _subscribeToProfile(String uid) {
     _profileSubscription = _repository.watchProfile(uid).listen(
       (UserProfile? profile) {
+        if (uid != _loadedUid) return;
         _profile = profile;
         _isLoading = false;
         _isInitialized = true;

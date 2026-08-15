@@ -52,8 +52,94 @@ class SupabaseAuthService implements AuthService {
   }
 
   @override
+  Future<void> updatePassword(String password) async {
+    await _client.auth.updateUser(UserAttributes(password: password));
+  }
+
+  @override
+  Future<void> updateEmail(String email) async {
+    // Supabase emails a confirmation link to the new address; the change only
+    // takes effect once it is confirmed.
+    await _client.auth.updateUser(UserAttributes(email: email));
+  }
+
+  @override
   Future<void> signOut() async {
     await _client.auth.signOut();
+  }
+
+  @override
+  Future<bool> hasTotpFactor() async {
+    final AuthMFAListFactorsResponse factors = await _client.auth.mfa
+        .listFactors();
+    return factors.totp.isNotEmpty;
+  }
+
+  @override
+  Future<TotpChallenge> startTotpChallenge({String? factorId}) async {
+    String? id = factorId;
+    if (id == null) {
+      final AuthMFAListFactorsResponse factors = await _client.auth.mfa
+          .listFactors();
+      if (factors.totp.isEmpty) {
+        throw const MfaFactorNotEnrolledException();
+      }
+      id = factors.totp.first.id;
+    }
+    final AuthMFAChallengeResponse challenge = await _client.auth.mfa
+        .challenge(factorId: id);
+    return TotpChallenge(factorId: id, challengeId: challenge.id);
+  }
+
+  @override
+  Future<void> verifyTotp({
+    required String factorId,
+    required String challengeId,
+    required String code,
+  }) async {
+    await _client.auth.mfa.verify(
+      factorId: factorId,
+      challengeId: challengeId,
+      code: code,
+    );
+  }
+
+  @override
+  Future<TotpEnrollment> enrollTotp() async {
+    final AuthMFAEnrollResponse enrollment = await _client.auth.mfa.enroll(
+      factorType: FactorType.totp,
+      issuer: 'LoText',
+      friendlyName: 'Admin',
+    );
+    final String? secret = enrollment.totp?.secret;
+    if (secret == null || secret.isEmpty) {
+      throw const AuthException(
+        'TOTP enrollment returned no secret.',
+        code: 'mfa_enrollment_failed',
+      );
+    }
+    return TotpEnrollment(factorId: enrollment.id, secret: secret);
+  }
+
+  @override
+  Future<void> sendEmailCode({required String email}) async {
+    await _client.auth.signInWithOtp(
+      email: email,
+      shouldCreateUser: false,
+      emailRedirectTo: 'lotext://two-factor',
+    );
+  }
+
+  @override
+  Future<void> verifyEmailCode({
+    required String email,
+    required String code,
+  }) async {
+    await _client.auth.verifyOTP(
+      email: email,
+      token: code,
+      type: OtpType.email,
+    );
   }
 
   @override

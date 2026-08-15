@@ -3,8 +3,14 @@ abstract final class AppRoutes {
   static const String splash = '/';
   static const String welcome = '/welcome';
   static const String login = '/login';
+  static const String adminLogin = '/admin-login';
   static const String register = '/register';
   static const String forgotPassword = '/forgot-password';
+
+  /// The second verification step after the admin's password (email code or
+  /// authenticator app). Signed-in only; the router keeps the admin here while
+  /// [AuthController.twoFactorPending] is true.
+  static const String twoFactor = '/two-factor';
 
   static const String home = '/home';
   static const String chats = '/chats';

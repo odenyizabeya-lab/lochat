@@ -3,7 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/auth/auth_controller.dart';
+import '../../core/auth/auth_scope.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/utils/validators.dart';
+import '../../features/auth/two_factor/totp_setup_screen.dart';
+import '../../shared/widgets/lotext_text_field.dart';
 import '../profile/models/user_profile.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_scope.dart';
@@ -50,9 +55,17 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = AdminConfigController(
-      repository: widget.repository ?? SupabaseAppConfigRepository(),
-    );
+    AppConfigRepository? repository = widget.repository;
+    if (repository == null) {
+      try {
+        repository = SupabaseAppConfigRepository();
+      } on Object {
+        // Supabase is not available (tests, offline preview). Keep the
+        // dashboard usable with a local, in-memory store.
+        repository = _MemoryConfigRepository();
+      }
+    }
+    _controller = AdminConfigController(repository: repository);
     _controller.load();
   }
 
@@ -226,6 +239,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                _AccountCard(theme: theme, scheme: scheme),
                 const SizedBox(height: 16),
                 _InfoBanner(theme: theme, scheme: scheme),
                 const SizedBox(height: 16),
@@ -511,4 +526,435 @@ class _ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AccountCard extends StatelessWidget {
+  const _AccountCard({required this.theme, required this.scheme});
+
+  final ThemeData theme;
+  final ColorScheme scheme;
+
+  Future<void> _logOut(BuildContext context) async {
+    final AuthController auth = AuthScope.of(context);
+    await auth.signOut();
+    // The router redirects to the welcome flow automatically.
+  }
+
+  Future<void> _manageTwoFactor(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => const _TwoFactorDialog(),
+    );
+  }
+
+  Future<void> _changePassword(BuildContext context) async {
+    final AuthController auth = AuthScope.of(context);
+    final String? newPassword = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => const _ChangePasswordDialog(),
+    );
+    if (newPassword == null || !context.mounted) return;
+    try {
+      await auth.updatePassword(newPassword);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password updated.')),
+        );
+      }
+    } on Object {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update the password. Please try again.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _changeEmail(BuildContext context) async {
+    final AuthController auth = AuthScope.of(context);
+    final String? newEmail = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => const _ChangeEmailDialog(),
+    );
+    if (newEmail == null || !context.mounted) return;
+    try {
+      await auth.updateEmail(newEmail);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Confirmation email sent to $newEmail.')),
+        );
+      }
+    } on Object {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not change the email. Please try again.'),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'Admin account',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.key_rounded, color: scheme.primary),
+            title: const Text('Change password'),
+            subtitle: const Text('Update the admin account password.'),
+            trailing: Icon(Icons.chevron_right_rounded, color: scheme.outline),
+            onTap: () => _changePassword(context),
+          ),
+          ListTile(
+            leading: Icon(Icons.alternate_email_rounded,
+                color: scheme.primary),
+            title: const Text('Change admin email'),
+            subtitle: const Text(
+              'A confirmation link is sent to the new address.',
+            ),
+            trailing: Icon(Icons.chevron_right_rounded, color: scheme.outline),
+            onTap: () => _changeEmail(context),
+          ),
+          ListTile(
+            leading: Icon(Icons.verified_user_rounded, color: scheme.primary),
+            title: const Text('Two-factor authentication'),
+            subtitle: const Text('Manage the code step when signing in.'),
+            trailing: Icon(Icons.chevron_right_rounded, color: scheme.outline),
+            onTap: () => _manageTwoFactor(context),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.logout_rounded, color: scheme.error),
+            title: Text(
+              'Log out',
+              style: TextStyle(color: scheme.error, fontWeight: FontWeight.w600),
+            ),
+            onTap: () => _logOut(context),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog();
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  String? _confirmValidator(String? value) {
+    if (value == null || value.isEmpty) return 'Confirm your new password';
+    if (value != _passwordController.text) {
+      return 'Passwords do not match';
+    }
+    return null;
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(_passwordController.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change password'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            LoTextTextField(
+              controller: _passwordController,
+              label: 'New password',
+              icon: Icons.lock_outline_rounded,
+              obscureText: true,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              validator: Validators.password,
+            ),
+            const SizedBox(height: 16),
+            LoTextTextField(
+              controller: _confirmController,
+              label: 'Confirm new password',
+              icon: Icons.lock_outline_rounded,
+              obscureText: true,
+              textInputAction: TextInputAction.done,
+              validator: _confirmValidator,
+              onFieldSubmitted: (_) => _save(),
+            ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Update'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChangeEmailDialog extends StatefulWidget {
+  const _ChangeEmailDialog();
+
+  @override
+  State<_ChangeEmailDialog> createState() => _ChangeEmailDialogState();
+}
+
+class _ChangeEmailDialogState extends State<_ChangeEmailDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(_emailController.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change admin email'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'A confirmation link will be sent to the new address. The email '
+              'only changes after you confirm it.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            LoTextTextField(
+              controller: _emailController,
+              label: 'New admin email',
+              icon: Icons.alternate_email_rounded,
+              keyboardType: TextInputType.emailAddress,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              validator: Validators.email,
+              onFieldSubmitted: (_) => _save(),
+            ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Send link'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TwoFactorDialog extends StatefulWidget {
+  const _TwoFactorDialog();
+
+  @override
+  State<_TwoFactorDialog> createState() => _TwoFactorDialogState();
+}
+
+class _TwoFactorDialogState extends State<_TwoFactorDialog> {
+  bool _totpSetUp = false;
+  bool _checking = true;
+  bool _startedCheck = false;
+
+  AuthController get _auth => AuthScope.of(context);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Inherited lookups are only allowed from didChangeDependencies, not
+    // initState.
+    if (!_startedCheck) {
+      _startedCheck = true;
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final bool setUp = await _auth.hasTotpFactor();
+      if (!mounted) return;
+      setState(() {
+        _totpSetUp = setUp;
+        _checking = false;
+      });
+    } on Object {
+      if (!mounted) return;
+      setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _setUpAuthenticator() async {
+    final bool? activated = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (BuildContext context) {
+        return const TotpSetupScreen();
+      }),
+    );
+    if (!mounted) return;
+    if (activated == true) {
+      await _refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final String adminEmail = _auth.currentUser?.email ?? 'your email';
+
+    return AlertDialog(
+      title: const Text('Two-factor authentication'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.email_outlined, color: scheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Email code',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'A 6-digit code is sent to $adminEmail when you sign in.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Icon(Icons.check_circle_rounded, color: Colors.green),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            children: <Widget>[
+              Icon(Icons.smartphone_rounded, color: scheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Authenticator app',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      _checking
+                          ? 'Checking...'
+                          : _totpSetUp
+                              ? 'Codes from the app are accepted at sign-in.'
+                              : 'Not set up yet. Codes only come by email.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (_checking)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (_totpSetUp)
+                const Icon(Icons.check_circle_rounded, color: Colors.green)
+              else
+                TextButton(
+                  onPressed: _setUpAuthenticator,
+                  child: const Text('Set up'),
+                ),
+            ],
+          ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+/// In-memory [AppConfigRepository] used when the Supabase-backed store cannot
+/// be created (tests, offline preview). The user is assumed to be an admin,
+/// matching the router's admin check that allowed them onto the dashboard.
+class _MemoryConfigRepository implements AppConfigRepository {
+  final Map<String, String> _values = <String, String>{};
+
+  @override
+  Future<bool> isAdmin() async => true;
+
+  @override
+  Future<Map<String, String>> fetchAll() async =>
+      Map<String, String>.of(_values);
+
+  @override
+  Future<void> setValue(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> remove(String key) async => _values.remove(key);
 }

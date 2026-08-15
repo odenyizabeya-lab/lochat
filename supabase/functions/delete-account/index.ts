@@ -69,8 +69,9 @@ Deno.serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
+  if (!supabaseUrl || !anonKey || !serviceKey) {
     return json({ error: "Function is not configured." }, 500);
   }
 
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
   const token = authHeader.replace(/^Bearer\s+/i, "");
   if (!token) return json({ error: "Unauthorized" }, 401);
 
-  const client = createClient(supabaseUrl, "anon");
+  const client = createClient(supabaseUrl, anonKey);
   const {
     data: { user },
     error: userError,

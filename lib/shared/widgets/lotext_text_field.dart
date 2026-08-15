@@ -10,6 +10,8 @@ class LoTextTextField extends StatefulWidget {
     this.hintText,
     this.icon,
     this.obscureText = false,
+    this.readOnly = false,
+    this.autofocus = false,
     this.keyboardType,
     this.textInputAction,
     this.autofillHints,
@@ -23,6 +25,8 @@ class LoTextTextField extends StatefulWidget {
   final String? hintText;
   final IconData? icon;
   final bool obscureText;
+  final bool readOnly;
+  final bool autofocus;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final Iterable<String>? autofillHints;
@@ -48,6 +52,8 @@ class _LoTextTextFieldState extends State<LoTextTextField> {
     return TextFormField(
       controller: widget.controller,
       obscureText: _obscure,
+      readOnly: widget.readOnly,
+      autofocus: widget.autofocus,
       keyboardType: widget.keyboardType,
       textInputAction: widget.textInputAction,
       autofillHints: widget.autofillHints,

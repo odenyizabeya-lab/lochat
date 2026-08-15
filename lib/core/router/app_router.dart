@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/admin_login/admin_login_screen.dart';
 import '../../features/auth/forgot_password/forgot_password_screen.dart';
 import '../../features/auth/login/login_screen.dart';
 import '../../features/auth/register/register_screen.dart';
+import '../../features/auth/two_factor/two_factor_screen.dart';
 import '../../features/auth/welcome/welcome_screen.dart';
 import '../../features/ai/ai_assistant_screen.dart';
 import '../../features/admin/admin_chat_room_screen.dart';
@@ -35,6 +37,7 @@ import '../../features/status/models/status_update.dart';
 import '../../features/status/screens/status_composer_screen.dart';
 import '../../features/status/screens/status_viewer_screen.dart';
 import '../auth/auth_controller.dart';
+import '../constants/app_constants.dart';
 import '../theme/theme_controller.dart';
 import 'app_routes.dart';
 
@@ -42,6 +45,7 @@ import 'app_routes.dart';
 const List<String> _authOnlyRoutes = <String>[
   AppRoutes.welcome,
   AppRoutes.login,
+  AppRoutes.adminLogin,
   AppRoutes.register,
   AppRoutes.forgotPassword,
 ];
@@ -59,9 +63,17 @@ const List<String> _adminOnlyRoutes = <String>[
 /// Redirect rules, in order:
 /// 1. auth state still resolving       -> splash
 /// 2. signed out                       -> welcome (auth screens allowed)
-/// 3. profile still resolving          -> splash
-/// 4. signed in, no username yet       -> choose-username
-/// 5. signed in with username          -> main screens; auth/splash -> home
+/// 3. admin 2FA step outstanding       -> two-factor screen
+/// 4. profile still resolving          -> splash
+/// 5. signed in, no username yet       -> choose-username
+/// 6. signed in with username          -> main screens; auth/splash -> home
+/// 7. the permanent admin email signs  -> Admin dashboard immediately
+bool _isAdminEmail(AuthController authController) {
+  final String? email = authController.currentUser?.email;
+  return email != null &&
+      email.toLowerCase() == AppConstants.adminEmail.toLowerCase();
+}
+
 GoRouter createRouter({
   required ThemeController themeController,
   required AuthController authController,
@@ -86,6 +98,12 @@ GoRouter createRouter({
         return _authOnlyRoutes.contains(location) ? null : AppRoutes.welcome;
       }
 
+      // The admin's second verification step takes priority over everything
+      // else while it is outstanding.
+      if (authController.twoFactorPending) {
+        return location == AppRoutes.twoFactor ? null : AppRoutes.twoFactor;
+      }
+
       if (!profileController.isInitialized) {
         return location == AppRoutes.splash ? null : AppRoutes.splash;
       }
@@ -96,16 +114,23 @@ GoRouter createRouter({
             : AppRoutes.chooseUsername;
       }
 
-      // The AI assistant and admin dashboard are for admins only.
+      // The AI assistant and admin dashboard are for admins only. The
+      // permanent admin email is always allowed through.
       if (_adminOnlyRoutes.contains(location) &&
-          !(profileController.profile?.isAdmin ?? false)) {
+          !(profileController.profile?.isAdmin ?? false) &&
+          !_isAdminEmail(authController)) {
         return AppRoutes.chats;
       }
 
-      // Signed in with a username. Keep them out of the signed-out flow.
+      // Signed in with a username. Keep them out of the signed-out flow. The
+      // permanent admin email always lands on the Admin dashboard.
       if (location == AppRoutes.splash ||
           _authOnlyRoutes.contains(location) ||
-          location == AppRoutes.chooseUsername) {
+          location == AppRoutes.chooseUsername ||
+          location == AppRoutes.twoFactor) {
+        if (_isAdminEmail(authController)) {
+          return AppRoutes.adminSettings;
+        }
         return AppRoutes.chats;
       }
       return null;
@@ -130,6 +155,12 @@ GoRouter createRouter({
             const LoginScreen(),
       ),
       GoRoute(
+        path: AppRoutes.adminLogin,
+        name: 'admin-login',
+        builder: (BuildContext context, GoRouterState state) =>
+            const AdminLoginScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.register,
         name: 'register',
         builder: (BuildContext context, GoRouterState state) =>
@@ -140,6 +171,12 @@ GoRouter createRouter({
         name: 'forgot-password',
         builder: (BuildContext context, GoRouterState state) =>
             const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.twoFactor,
+        name: 'two-factor',
+        builder: (BuildContext context, GoRouterState state) =>
+            const TwoFactorScreen(),
       ),
       GoRoute(
         path: AppRoutes.chooseUsername,

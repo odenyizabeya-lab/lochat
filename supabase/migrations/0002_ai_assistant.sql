@@ -11,18 +11,22 @@
 
 begin;
 
-drop policy if exists "ai conversations are readable by their owner"
-  on public.ai_conversations;
-drop policy if exists "ai conversations can be created by their owner"
-  on public.ai_conversations;
-drop policy if exists "ai conversations can be updated by their owner"
-  on public.ai_conversations;
-drop policy if exists "ai conversations can be deleted by their owner"
-  on public.ai_conversations;
-drop policy if exists "ai messages are readable by conversation owners"
-  on public.ai_messages;
-drop policy if exists "ai messages can be written by conversation owners"
-  on public.ai_messages;
+-- Drop leftovers from a previous (partial) run. The tables may not exist yet on
+-- a fresh apply, so guard each drop behind a table-existence check.
+do $$
+begin
+  if to_regclass('public.ai_conversations') is not null then
+    execute 'drop policy if exists "ai conversations are readable by their owner" on public.ai_conversations';
+    execute 'drop policy if exists "ai conversations can be created by their owner" on public.ai_conversations';
+    execute 'drop policy if exists "ai conversations can be updated by their owner" on public.ai_conversations';
+    execute 'drop policy if exists "ai conversations can be deleted by their owner" on public.ai_conversations';
+  end if;
+  if to_regclass('public.ai_messages') is not null then
+    execute 'drop policy if exists "ai messages are readable by conversation owners" on public.ai_messages';
+    execute 'drop policy if exists "ai messages can be written by conversation owners" on public.ai_messages';
+  end if;
+end;
+$$;
 
 create table if not exists public.ai_conversations (
   id uuid primary key default gen_random_uuid(),

@@ -80,6 +80,19 @@ class FakeAuthService implements AuthService {
   @override
   Future<void> sendPasswordReset({required String email}) async {}
 
+  String? updatedPassword;
+  String? updatedEmail;
+
+  @override
+  Future<void> updatePassword(String password) async {
+    updatedPassword = password;
+  }
+
+  @override
+  Future<void> updateEmail(String email) async {
+    updatedEmail = email;
+  }
+
   @override
   Future<void> signOut() async {
     _currentUser = null;
@@ -93,6 +106,74 @@ class FakeAuthService implements AuthService {
     deleteAccountCalls++;
     _currentUser = null;
     _changes.add(null);
+  }
+
+  // ---- Two-factor verification ----
+
+  /// Whether a verified TOTP factor exists for the user.
+  bool totpEnabled = false;
+
+  /// The TOTP code accepted by [verifyTotp].
+  String totpCode = '123456';
+
+  /// The email code accepted by [verifyEmailCode].
+  String emailCode = '123456';
+
+  /// How many times [sendEmailCode] has been called.
+  int emailCodeSentCount = 0;
+
+  /// Throws from every 2FA operation when true.
+  bool failTwoFactor = false;
+
+  /// The factor id passed to the most recent [startTotpChallenge].
+  String? lastTotpFactorId;
+
+  @override
+  Future<bool> hasTotpFactor() async => totpEnabled;
+
+  @override
+  Future<TotpChallenge> startTotpChallenge({String? factorId}) async {
+    if (failTwoFactor) throw Exception('2FA failed');
+    if (!totpEnabled && factorId == null) {
+      throw const MfaFactorNotEnrolledException();
+    }
+    lastTotpFactorId = factorId ?? 'totp-factor-1';
+    return TotpChallenge(factorId: lastTotpFactorId!, challengeId: 'challenge-1');
+  }
+
+  @override
+  Future<void> verifyTotp({
+    required String factorId,
+    required String challengeId,
+    required String code,
+  }) async {
+    if (failTwoFactor) throw Exception('2FA failed');
+    if (code != totpCode) throw Exception('Invalid code');
+  }
+
+  @override
+  Future<TotpEnrollment> enrollTotp() async {
+    if (failTwoFactor) throw Exception('2FA failed');
+    totpEnabled = true;
+    return const TotpEnrollment(
+      factorId: 'totp-factor-1',
+      secret: 'JBSWY3DPEHPK3PXP',
+    );
+  }
+
+  @override
+  Future<void> sendEmailCode({required String email}) async {
+    if (failTwoFactor) throw Exception('2FA failed');
+    emailCodeSentCount++;
+  }
+
+  @override
+  Future<void> verifyEmailCode({
+    required String email,
+    required String code,
+  }) async {
+    if (failTwoFactor) throw Exception('2FA failed');
+    if (code != emailCode) throw Exception('Invalid code');
   }
 }
 

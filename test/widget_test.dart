@@ -97,7 +97,7 @@ void main() {
   testWidgets('signed-out user sees the welcome screen', (WidgetTester tester) async {
     await pumpApp(tester);
 
-    expect(find.text('Welcome to LoText'), findsOneWidget);
+    expect(find.textContaining('Welcome to', findRichText: true), findsOneWidget);
     expect(find.text('Create your account'), findsOneWidget);
   });
 

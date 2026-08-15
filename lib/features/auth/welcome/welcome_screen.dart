@@ -98,6 +98,16 @@ class WelcomeScreen extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => context.go(AppRoutes.adminLogin),
+                    child: Text(
+                      'Admin login',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

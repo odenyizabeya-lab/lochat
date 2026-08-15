@@ -21,8 +21,6 @@ enabled = true
 port = 54323
 
 [functions]
-enabled = true
-verify_jwt = true
 
 # Called by the Postgres trigger (migration 0009), not by a signed-in user, so
 # it cannot require a JWT. It authenticates via the x-notify-secret header
@@ -31,6 +29,10 @@ verify_jwt = true
 verify_jwt = false
 
 # Called from Settings -> Delete account with the signed-in user's JWT, so the
-# caller must be verified. The global default is already true; this is explicit.
+# caller must be verified.
 [functions.delete-account]
+verify_jwt = true
+
+# Called from the app with the signed-in user's JWT.
+[functions.ai-assistant]
 verify_jwt = true

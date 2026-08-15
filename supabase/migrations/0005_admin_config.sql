@@ -28,8 +28,16 @@ create table if not exists public.app_config (
 
 alter table public.app_config enable row level security;
 
-drop policy if exists "app_config is readable by admins" on public.app_config;
-drop policy if exists "app_config is writable by admins" on public.app_config;
+-- Drop leftover policies from a previous run. The table may not exist yet on a
+-- fresh apply, so guard the drop behind a table-existence check.
+do $$
+begin
+  if to_regclass('public.app_config') is not null then
+    execute 'drop policy if exists "app_config is readable by admins" on public.app_config';
+    execute 'drop policy if exists "app_config is writable by admins" on public.app_config';
+  end if;
+end;
+$$;
 
 create or replace function public.is_admin()
 returns boolean

@@ -70,4 +70,16 @@ abstract final class Validators {
     }
     return null;
   }
+
+  /// Validates a 6-digit verification code.
+  static String? code(String? value) {
+    final String text = value?.trim() ?? '';
+    if (text.isEmpty) {
+      return 'Enter the 6-digit code';
+    }
+    if (!RegExp(r'^\d{6}$').hasMatch(text)) {
+      return 'Enter the 6-digit code';
+    }
+    return null;
+  }
 }
