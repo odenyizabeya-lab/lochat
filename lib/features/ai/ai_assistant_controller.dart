@@ -8,6 +8,7 @@ import 'models/ai_conversation.dart';
 import 'models/ai_message.dart';
 import 'models/ai_provider.dart';
 import 'models/ai_task.dart';
+import 'models/ai_user_profile.dart';
 
 /// App-wide state for the AI assistant.
 ///
@@ -43,6 +44,18 @@ class AiAssistantController extends ChangeNotifier {
 
   /// The provider applied to new conversations.
   AiProvider get provider => _provider;
+
+  /// The user profile that shapes the AI's persona. When set, the AI will
+  /// chat as this user, mimicking their name, style, and preferences.
+  AiUserProfile? _selectedProfile;
+
+  AiUserProfile? get selectedProfile => _selectedProfile;
+
+  /// Sets the AI user profile so the assistant chats as this person.
+  void setSelectedProfile(AiUserProfile profile) {
+    _selectedProfile = profile;
+    notifyListeners();
+  }
 
   List<AiConversation> get conversations => _conversations;
   bool get conversationsLoading => _conversationsLoading;
@@ -169,6 +182,7 @@ class AiAssistantController extends ChangeNotifier {
     required String content,
     AiTask? task,
     String? targetLanguage,
+    AiUserProfile? profile,
   }) async {
     final String trimmed = content.trim();
     if (_sending || trimmed.isEmpty) return false;
@@ -192,6 +206,7 @@ class AiAssistantController extends ChangeNotifier {
         content: trimmed,
         task: task,
         targetLanguage: targetLanguage,
+        profile: profile ?? _selectedProfile,
       );
       _messages = <AiMessage>[..._messages, result.user, result.assistant];
       _syncConversationHeader(trimmed);

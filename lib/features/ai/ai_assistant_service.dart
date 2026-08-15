@@ -3,6 +3,7 @@ import 'models/ai_conversation.dart';
 import 'models/ai_message.dart';
 import 'models/ai_provider.dart';
 import 'models/ai_task.dart';
+import 'models/ai_user_profile.dart';
 
 /// Backend contract for the AI assistant.
 ///
@@ -37,10 +38,12 @@ abstract interface class AiAssistantService {
   ///
   /// [task] selects a quick action (write reply / rewrite / suggest replies /
   /// summarize / translate); [targetLanguage] is used for translation.
+  /// [profile] optionally shapes the assistant's persona to match the user.
   Future<AiChatResult> sendMessage({
     required String conversationId,
     required String content,
     AiTask? task,
     String? targetLanguage,
+    AiUserProfile? profile,
   });
 }

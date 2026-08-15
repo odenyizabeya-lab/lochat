@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:lotext/features/ai/models/ai_user_profile.dart';
+
 import 'ai_assistant_exception.dart';
 import 'ai_assistant_service.dart';
 import 'ai_chat_result.dart';
@@ -88,6 +90,7 @@ class SupabaseAiAssistantService implements AiAssistantService {
     required String content,
     AiTask? task,
     String? targetLanguage,
+    AiUserProfile? profile,
   }) async {
     final dynamic data = await _invoke(<String, dynamic>{
       'action': 'chat',
@@ -95,6 +98,7 @@ class SupabaseAiAssistantService implements AiAssistantService {
       'content': content,
       'task': ?task?.wireName,
       'targetLanguage': ?targetLanguage,
+      'profile': profile?.toJson(),
     });
     final Map<String, dynamic> map = data as Map<String, dynamic>;
     return AiChatResult(

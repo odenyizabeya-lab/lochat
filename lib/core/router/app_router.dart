@@ -8,8 +8,14 @@ import '../../features/auth/register/register_screen.dart';
 import '../../features/auth/two_factor/two_factor_screen.dart';
 import '../../features/auth/welcome/welcome_screen.dart';
 import '../../features/ai/ai_assistant_screen.dart';
+import '../../features/admin/admin_account_manager_screen.dart';
 import '../../features/admin/admin_chat_room_screen.dart';
+import '../../features/admin/admin_managed_chat_screen.dart';
 import '../../features/admin/admin_settings_screen.dart';
+import '../../features/admin/data/supabase_managed_account_repository.dart';
+import '../../features/admin/data/supabase_managed_chat_repository.dart';
+import '../../features/admin/managed_account_controller.dart';
+import '../../features/admin/managed_account_scope.dart';
 import '../../features/calls/call_session_controller.dart';
 import '../../features/calls/models/call.dart';
 import '../../features/calls/screens/call_history_screen.dart';
@@ -27,6 +33,7 @@ import '../../features/home/profile/profile_screen.dart';
 import '../../features/home/tools/tools_screen.dart';
 import '../../features/home/updates/updates_screen.dart';
 import '../../features/profile/profile_controller.dart';
+import '../../features/profile/profile_scope.dart';
 import '../../features/profile/screens/add_contact_screen.dart';
 import '../../features/profile/screens/choose_username_screen.dart';
 import '../../features/profile/screens/edit_profile_screen.dart';
@@ -37,6 +44,7 @@ import '../../features/status/models/status_update.dart';
 import '../../features/status/screens/status_composer_screen.dart';
 import '../../features/status/screens/status_viewer_screen.dart';
 import '../auth/auth_controller.dart';
+import '../auth/auth_scope.dart';
 import '../constants/app_constants.dart';
 import '../theme/theme_controller.dart';
 import 'app_routes.dart';
@@ -56,6 +64,8 @@ const List<String> _adminOnlyRoutes = <String>[
   AppRoutes.ai,
   AppRoutes.adminSettings,
   AppRoutes.adminChatRoom,
+  AppRoutes.adminAccounts,
+  AppRoutes.adminChat,
 ];
 
 /// Builds the app's [GoRouter].
@@ -412,6 +422,38 @@ GoRouter createRouter({
         name: 'admin-chat-room',
         builder: (BuildContext context, GoRouterState state) =>
             const AdminChatRoomScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminAccounts,
+        name: 'admin-accounts',
+        builder: (BuildContext context, GoRouterState state) {
+          final ManagedAccountController? existing = ManagedAccountScope.maybeOf(context);
+          final AuthController auth = AuthScope.of(context);
+          final ManagedAccountController controller = existing ??
+              ManagedAccountController(
+                accountRepository: SupabaseManagedAccountRepository(),
+                chatRepository: SupabaseManagedChatRepository(),
+                adminUid: ProfileScope.of(context).profile?.uid ??
+                    auth.currentUser?.uid ??
+                    '',
+              );
+          return AdminAccountManagerScreen(controller: controller);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminChat,
+        name: 'admin-chat',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra = state.extra is Map<String, dynamic>
+              ? state.extra as Map<String, dynamic>
+              : null;
+          final String conversationId = extra?['conversationId'] as String? ?? '';
+          final String managedAccountId = extra?['managedAccountId'] as String? ?? '';
+          return AdminManagedChatScreen(
+            conversationId: conversationId,
+            managedAccountId: managedAccountId,
+          );
+        },
       ),
     ],
   );

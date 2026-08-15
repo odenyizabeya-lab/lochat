@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' hide MessageType;
 import 'package:lotext/core/auth/auth_service.dart';
 import 'package:lotext/core/auth/auth_user.dart';
+import 'package:lotext/features/ai/models/ai_user_profile.dart';
 import 'package:lotext/features/ai/ai_assistant_service.dart';
 import 'package:lotext/features/ai/ai_chat_result.dart';
 import 'package:lotext/features/ai/models/ai_conversation.dart';
@@ -1482,6 +1483,7 @@ class FakeAiAssistantService implements AiAssistantService {
     required String content,
     AiTask? task,
     String? targetLanguage,
+    AiUserProfile? profile,
   }) async {
     _maybeFail();
     final AiMessage userMessage = AiMessage(
@@ -1490,10 +1492,16 @@ class FakeAiAssistantService implements AiAssistantService {
       content: content,
       createdAt: DateTime.now(),
     );
+    final String taskSuffix = task != null ? ' (${task.wireName})' : '';
+    final String assistantContent = task != null
+        ? '$reply$taskSuffix'
+        : (profile != null
+            ? 'Profile: ${profile.displayName} - Adapted response'
+            : reply);
     final AiMessage assistantMessage = AiMessage(
       id: 'assistant-${_nextId++}',
       role: AiRole.assistant,
-      content: task == null ? reply : '$reply (${task.wireName})',
+      content: assistantContent,
       createdAt: DateTime.now(),
     );
     final List<AiMessage> list = messagesByConversation.putIfAbsent(

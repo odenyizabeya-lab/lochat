@@ -26,6 +26,12 @@ abstract final class AppRoutes {
   /// Admin chat room: the admin's 1-to-1 conversations (admins only).
   static const String adminChatRoom = '/settings/admin/chat-room';
 
+  /// Admin managed accounts (admins only).
+  static const String adminAccounts = '/settings/admin/accounts';
+
+  /// Individual managed account chat (admins only).
+  static const String adminChat = '/settings/admin/chat';
+
   // Contacts.
   static const String contacts = '/contacts';
   static const String addContact = '/add-contact';
