@@ -424,14 +424,15 @@ GoRouter createRouter({
           final ManagedAccountController? existing =
               ManagedAccountScope.maybeOf(context);
           final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
           final ManagedAccountController controller =
               existing ??
               ManagedAccountController(
                 accountRepository: SupabaseManagedAccountRepository(),
                 chatRepository: SupabaseManagedChatRepository(),
-                adminUid: ProfileScope.of(context).profile?.uid ??
-                    auth.currentUser?.uid ??
-                    '',
+                adminUid: uid,
               )..load();
           return ManagedAccountScope(
             child: AdminChatRoomScreen(),
@@ -445,14 +446,15 @@ GoRouter createRouter({
         builder: (BuildContext context, GoRouterState state) {
           final ManagedAccountController? existing = ManagedAccountScope.maybeOf(context);
           final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
           final ManagedAccountController controller = existing ??
               ManagedAccountController(
                 accountRepository: SupabaseManagedAccountRepository(),
                 chatRepository: SupabaseManagedChatRepository(),
-                adminUid: ProfileScope.of(context).profile?.uid ??
-                    auth.currentUser?.uid ??
-                    '',
-              );
+                adminUid: uid,
+              )..load();
           return AdminAccountManagerScreen(controller: controller);
         },
       ),
