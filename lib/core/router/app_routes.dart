@@ -32,6 +32,27 @@ abstract final class AppRoutes {
   /// Individual managed account chat (admins only).
   static const String adminChat = '/settings/admin/chat';
 
+  /// Active voice/video call for a managed account (admins only). `extra` must
+  /// be a map with 'callId', 'conversationId', 'managedAccountId',
+  /// 'peerName' (String) and optional 'peerPhotoUrl' (String).
+  static const String adminCall = '/settings/admin/call';
+
+  /// Call history for a managed account (admins only). `extra` must be a map
+  /// with 'managedAccountId' (String).
+  static const String adminCallHistory = '/settings/admin/call-history';
+
+  /// Status composer for a managed account (admins only). `extra` must be a
+  /// map with 'managedAccountId' (String).
+  static const String adminStatusComposer = '/settings/admin/status-compose';
+
+  /// Status viewer for a managed account (admins only). `extra` must be a map
+  /// with 'managedAccountId' (String) and 'index' (int).
+  static const String adminStatusViewer = '/settings/admin/status-viewer';
+
+  /// Updates hub for a managed account (admins only). `extra` must be a map
+  /// with 'managedAccountId' (String).
+  static const String adminUpdates = '/settings/admin/updates';
+
   // Contacts.
   static const String contacts = '/contacts';
   static const String addContact = '/add-contact';

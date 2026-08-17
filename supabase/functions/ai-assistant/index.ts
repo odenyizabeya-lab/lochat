@@ -181,7 +181,9 @@ const BANK_TRANSFER_DETAILS = {
     account: "646010504200345127",
     bankCode: "646",
     branchCode: "010",
-    bankAddress: "Av. Insurg]
+    bankAddress: "Av. Insurgentes Sur 1602, Ciudad de México, CDMX, México"
+  },
+};
 
 // User profile passed from the app to shape the AI's persona.
 interface UserProfile {
@@ -192,19 +194,26 @@ interface UserProfile {
   preferredTopics: string[]; // topics AI should prioritize
   avoidTopics: string[];     // topics AI should avoid
   favoritePhrases: string[]; // user's common phrases/style
+}
 
-  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
-    displayName: json['displayName'] as String? ?? '',
-    username: json['username'] as String? ?? '',
-    writeGoodEnglish: json['writeGoodEnglish'] as bool? ?? true,
-    personality: json['personality'] as String? ?? 'balanced',
-    preferredTopics: (json['preferredTopics'] as List<dynamic>?) 
-      ?.map((e) => e as String) ?? <String>[],
-    avoidTopics: (json['avoidTopics'] as List<dynamic>?) 
-      ?.map((e) => e as String) ?? <String>[],
-    favoritePhrases: (json['favoritePhrases'] as List<dynamic>?) 
-      ?.map((e) => e as String) ?? <String>[],
-  );
+// Builds a UserProfile from an arbitrary JSON payload sent by the app.
+function userProfileFromJson(json: Record<string, unknown> | null | undefined): UserProfile | null {
+  if (!json) return null;
+  const strings = (key: string): string[] => {
+    const value = json[key];
+    return Array.isArray(value)
+      ? value.filter((v): v is string => typeof v === "string")
+      : [];
+  };
+  return {
+    displayName: typeof json["displayName"] === "string" ? json["displayName"] : "",
+    username: typeof json["username"] === "string" ? json["username"] : "",
+    writeGoodEnglish: typeof json["writeGoodEnglish"] === "boolean" ? json["writeGoodEnglish"] : true,
+    personality: typeof json["personality"] === "string" ? json["personality"] : "balanced",
+    preferredTopics: strings("preferredTopics"),
+    avoidTopics: strings("avoidTopics"),
+    favoritePhrases: strings("favoritePhrases"),
+  };
 }
 
 // Default system prompt that incorporates the user profile when available.
@@ -214,9 +223,9 @@ function defaultSystemPrompt(profile: UserProfile | null): string {
 
   const englishInstructions = profile?.writeGoodEnglish !== undefined
     ? profile.writeGoodEnglish
-      ? "Write in fluent, natural English that is easy to understand and sounds "
+      ? "Write in fluent, natural English that is easy to understand and sounds " +
         "like a real person who speaks naturally - not like an AI reading a manual."
-      : "Adapt your writing style to match the user's level while remaining "
+      : "Adapt your writing style to match the user's level while remaining " +
         "understandable and sounding like a real person."
     : "Write in clear, natural English that sounds like a real person.";
 
@@ -236,9 +245,11 @@ function defaultSystemPrompt(profile: UserProfile | null): string {
     : ``;
 
   const core = `
-${nameInstructions}${englishInstructions} ${streetInstructions}
+${nameInstructions}${englishInstructions}
 
-${englishPersonalityInstructions} ${personalityInstructions}
+${personalityInstructions}
+
+${realityInstructions}
 
 You are LoText AI, assistant inside the LoText messaging app. Be helpful, 
 natural and engaging. Chat about many things - love, care, business, street 
@@ -312,7 +323,7 @@ function systemPromptFor(
         base + "\n\n" +
         "You are helping a LoText user reply to a message. The user pasted the " +
         "message they received; write a natural, helpful reply on their behalf " +
-        "that sounds exactly like them. Keep it under 200 words and make it "
+        "that sounds exactly like them. Keep it under 200 words and make it " +
         "sound like the user wrote it, not an AI."
       );
     case "rewrite":
@@ -739,9 +750,9 @@ Deno.serve(async (req) => {
           ? undefined
           : String(body.targetLanguage);
 
-        const profile = body.profile 
-          ? UserProfile.fromJson(body.profile as Map<String, dynamic>)
-          : null;
+        const profile = userProfileFromJson(
+          body.profile as Record<string, unknown> | null | undefined,
+        );
 
         const conversation = await db.getConversation(conversationId, user.id);
         const provider: ProviderName = conversation.provider in MODELS
@@ -776,8 +787,8 @@ Deno.serve(async (req) => {
           } else {
             // No specific account number, but can reference generally that admin has details
             paymentSection = `\n\n--- PAYMENT INFO ---\nThe admin has bank transfer details available if needed for payments. ` +
-              'When the user asks about payment details, the AI can say the admin has account information ready. ` +
-              'Keep it natural - a real person would know their admin has setup payment details, not make up numbers. `;
+              'When the user asks about payment details, the AI can say the admin has account information ready. ' +
+              'Keep it natural - a real person would know their admin has setup payment details, not make up numbers. ';
           }
           system += paymentSection;
         }
@@ -877,7 +888,7 @@ Deno.serve(async (req) => {
           );
         }
 
-        const system = systemPromptFor("translate", targetLanguage);
+        const system = systemPromptFor("translate", targetLanguage, null);
         const translation = await generateReply(
           "openai",
           system,

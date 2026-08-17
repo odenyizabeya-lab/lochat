@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,13 +11,20 @@ import '../../features/auth/two_factor/two_factor_screen.dart';
 import '../../features/auth/welcome/welcome_screen.dart';
 import '../../features/ai/ai_assistant_screen.dart';
 import '../../features/admin/admin_account_manager_screen.dart';
-import '../../features/admin/admin_chat_room_screen.dart';
+import '../../features/admin/admin_managed_call_history_screen.dart';
+import '../../features/admin/admin_managed_call_screen.dart';
 import '../../features/admin/admin_managed_chat_screen.dart';
+import '../../features/admin/admin_managed_status_composer_screen.dart';
+import '../../features/admin/admin_managed_status_viewer_screen.dart';
+import '../../features/admin/admin_managed_updates_screen.dart';
 import '../../features/admin/admin_settings_screen.dart';
 import '../../features/admin/data/supabase_managed_account_repository.dart';
 import '../../features/admin/data/supabase_managed_chat_repository.dart';
 import '../../features/admin/managed_account_controller.dart';
 import '../../features/admin/managed_account_scope.dart';
+import '../../features/admin/managed_chat_controller.dart';
+import '../../features/admin/managed_chat_scope.dart';
+import '../../features/admin/models/managed_status.dart';
 import '../../features/calls/call_session_controller.dart';
 import '../../features/calls/models/call.dart';
 import '../../features/calls/screens/call_history_screen.dart';
@@ -66,6 +75,11 @@ const List<String> _adminOnlyRoutes = <String>[
   AppRoutes.adminChatRoom,
   AppRoutes.adminAccounts,
   AppRoutes.adminChat,
+  AppRoutes.adminCall,
+  AppRoutes.adminCallHistory,
+  AppRoutes.adminStatusComposer,
+  AppRoutes.adminStatusViewer,
+  AppRoutes.adminUpdates,
 ];
 
 /// Builds the app's [GoRouter].
@@ -420,25 +434,8 @@ GoRouter createRouter({
       GoRoute(
         path: AppRoutes.adminChatRoom,
         name: 'admin-chat-room',
-        builder: (BuildContext context, GoRouterState state) {
-          final ManagedAccountController? existing =
-              ManagedAccountScope.maybeOf(context);
-          final AuthController auth = AuthScope.of(context);
-          final String uid = ProfileScope.of(context).profile?.uid ??
-              auth.currentUser?.uid ??
-              '';
-          final ManagedAccountController controller =
-              existing ??
-              ManagedAccountController(
-                accountRepository: SupabaseManagedAccountRepository(),
-                chatRepository: SupabaseManagedChatRepository(),
-                adminUid: uid,
-              )..load();
-          return ManagedAccountScope(
-            child: AdminChatRoomScreen(),
-            controller: controller,
-          );
-        },
+        builder: (BuildContext context, GoRouterState state) =>
+            const ChatsScreen(title: 'Chat Room'),
       ),
       GoRoute(
         path: AppRoutes.adminAccounts,
@@ -462,14 +459,246 @@ GoRouter createRouter({
         path: AppRoutes.adminChat,
         name: 'admin-chat',
         builder: (BuildContext context, GoRouterState state) {
-          final Map<String, dynamic>? extra = state.extra is Map<String, dynamic>
-              ? state.extra as Map<String, dynamic>
-              : null;
-          final String conversationId = extra?['conversationId'] as String? ?? '';
-          final String managedAccountId = extra?['managedAccountId'] as String? ?? '';
-          return AdminManagedChatScreen(
-            conversationId: conversationId,
-            managedAccountId: managedAccountId,
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String conversationId =
+              extra?['conversationId'] as String? ?? '';
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedChatScreen(
+                conversationId: conversationId,
+                managedAccountId: managedAccountId,
+              ),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminCall,
+        name: 'admin-call',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String callId = extra?['callId'] as String? ?? '';
+          final String conversationId =
+              extra?['conversationId'] as String? ?? '';
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final String peerName = extra?['peerName'] as String? ?? '';
+          final String? peerPhotoUrl =
+              extra?['peerPhotoUrl'] as String?;
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedCallScreen(
+                callId: callId,
+                conversationId: conversationId,
+                managedAccountId: managedAccountId,
+                peerName: peerName,
+                peerPhotoUrl: peerPhotoUrl,
+              ),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminCallHistory,
+        name: 'admin-call-history',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedCallHistoryScreen(
+                managedAccountId: managedAccountId,
+              ),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminStatusComposer,
+        name: 'admin-status-composer',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedStatusComposerScreen(
+                managedAccountId: managedAccountId,
+              ),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminStatusViewer,
+        name: 'admin-status-viewer',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final List<ManagedStatus> statuses =
+              (extra?['statuses'] as List<ManagedStatus>?) ??
+                  const <ManagedStatus>[];
+          final int startIndex = (extra?['startIndex'] as int?) ?? 0;
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedStatusViewerScreen(
+                managedAccountId: managedAccountId,
+                statuses: statuses,
+                startIndex: startIndex,
+              ),
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.adminUpdates,
+        name: 'admin-updates',
+        builder: (BuildContext context, GoRouterState state) {
+          final Map<String, dynamic>? extra =
+              state.extra is Map<String, dynamic>
+                  ? state.extra as Map<String, dynamic>
+                  : null;
+          final String managedAccountId =
+              extra?['managedAccountId'] as String? ?? '';
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController accountController =
+              ManagedAccountController(
+            accountRepository: SupabaseManagedAccountRepository(),
+            chatRepository: SupabaseManagedChatRepository(),
+            adminUid: uid,
+          );
+          unawaited(() async {
+            await accountController.load();
+            await accountController.selectAccountById(managedAccountId);
+          }());
+          return ManagedAccountScope(
+            controller: accountController,
+            child: ManagedChatScope(
+              controller: ManagedChatController(
+                chatRepository: SupabaseManagedChatRepository(),
+                accountController: accountController,
+              ),
+              child: AdminManagedUpdatesScreen(
+                managedAccountId: managedAccountId,
+              ),
+            ),
           );
         },
       ),

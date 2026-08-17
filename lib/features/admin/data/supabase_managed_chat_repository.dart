@@ -5,9 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../chat/data/chat_repository.dart';
 import '../../../features/profile/models/user_profile.dart';
+import '../models/managed_call.dart';
 import '../models/managed_conversation.dart';
 import '../models/managed_message.dart';
-import '../../chat/models/voice_effect.dart';
+import '../models/managed_status.dart';
 import 'managed_chat_repository.dart';
 
 class SupabaseManagedChatRepository implements ManagedChatRepository {
@@ -25,6 +26,27 @@ class SupabaseManagedChatRepository implements ManagedChatRepository {
         .order('last_message_at', ascending: false)
         .map((List<Map<String, dynamic>> rows) =>
             rows.map(_toConversation).toList());
+  }
+
+  @override
+  Stream<UserProfile?> watchPeerPresence(String peerUid) {
+    return _client
+        .from('profiles')
+        .stream(primaryKey: ['uid'])
+        .eq('uid', peerUid)
+        .map((List<Map<String, dynamic>> rows) {
+      if (rows.isEmpty) return null;
+      final Map<String, dynamic> data = rows.first;
+      return UserProfile(
+        uid: (data['uid'] as String?) ?? peerUid,
+        username: (data['username'] as String?) ?? '',
+        displayName: (data['display_name'] as String?) ?? '',
+        lotextId: _nullIfEmpty(data['lotext_id'] as String?),
+        photoURL: _nullIfEmpty(data['photo_url'] as String?),
+        isOnline: (data['is_online'] as bool?) ?? false,
+        lastSeen: _toDate(data['last_seen']),
+      );
+    });
   }
 
   @override
@@ -266,6 +288,249 @@ class SupabaseManagedChatRepository implements ManagedChatRepository {
     ));
   }
 
+  // ----- Managed calls -----
+
+  @override
+  Future<ManagedCall> startCall({
+    required String managedAccountId,
+    required String conversationId,
+    required String peerUid,
+    required ManagedCallType type,
+  }) async {
+    final String id = 'mc_${DateTime.now().microsecondsSinceEpoch}';
+    await _client.from('managed_account_calls').insert(<String, dynamic>{
+      'id': id,
+      'managed_account_id': managedAccountId,
+      'conversation_id': conversationId,
+      'peer_uid': peerUid,
+      'type': type == ManagedCallType.video ? 'video' : 'audio',
+      'status': 'ringing',
+    });
+    return ManagedCall(
+      id: id,
+      managedAccountId: managedAccountId,
+      conversationId: conversationId,
+      peerUid: peerUid,
+      type: type,
+      status: ManagedCallStatus.ringing,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Stream<ManagedCall> watchCall(String callId) {
+    return _client
+        .from('managed_account_calls')
+        .stream(primaryKey: ['id'])
+        .eq('id', callId)
+        .map((List<Map<String, dynamic>> rows) {
+      if (rows.isEmpty) {
+        return ManagedCall(
+          id: callId,
+          managedAccountId: '',
+          conversationId: '',
+          peerUid: '',
+          type: ManagedCallType.audio,
+          status: ManagedCallStatus.ended,
+          createdAt: DateTime.now(),
+        );
+      }
+      return _toCall(rows.first);
+    });
+  }
+
+  @override
+  Future<ManagedCall?> fetchCall(String callId) async {
+    final List<Map<String, dynamic>> rows = await _client
+        .from('managed_account_calls')
+        .select()
+        .eq('id', callId)
+        .limit(1);
+    if (rows.isEmpty) return null;
+    return _toCall(rows.first);
+  }
+
+  @override
+  Future<void> endCall({
+    required String callId,
+    required String byUid,
+  }) async {
+    await _client.from('managed_account_calls').update(<String, dynamic>{
+      'status': 'ended',
+      'ended_at': DateTime.now().toUtc().toIso8601String(),
+      'ended_by': byUid,
+    }).eq('id', callId);
+  }
+
+  @override
+  Future<void> answerCall(String callId) async {
+    await _client.from('managed_account_calls').update(<String, dynamic>{
+      'status': 'active',
+      'answered_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', callId);
+  }
+
+  @override
+  Future<void> markMissed(String callId) async {
+    await _client.from('managed_account_calls').update(<String, dynamic>{
+      'status': 'missed',
+      'ended_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', callId);
+  }
+
+  @override
+  Future<void> declineCall(String callId) async {
+    await _client.from('managed_account_calls').update(<String, dynamic>{
+      'status': 'declined',
+      'ended_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', callId);
+  }
+
+  @override
+  Future<List<ManagedCall>> fetchCallHistory(String managedAccountId) async {
+    final List<Map<String, dynamic>> rows = await _client
+        .from('managed_account_calls')
+        .select()
+        .eq('managed_account_id', managedAccountId)
+        .order('created_at', ascending: false)
+        .limit(100);
+    return rows.map(_toCall).toList();
+  }
+
+  @override
+  Stream<void> watchCallChanges(String managedAccountId) {
+    return _client
+        .from('managed_account_calls')
+        .stream(primaryKey: ['id'])
+        .eq('managed_account_id', managedAccountId)
+        .map((List<Map<String, dynamic>> _) {});
+  }
+
+  // ----- Managed status -----
+
+  @override
+  Stream<List<ManagedStatusGroup>> watchStatuses(String managedAccountId) {
+    return _client
+        .from('managed_account_statuses')
+        .stream(primaryKey: ['id'])
+        .eq('managed_account_id', managedAccountId)
+        .order('created_at_ms', ascending: false)
+        .asyncMap((List<Map<String, dynamic>> rows) async {
+      final List<ManagedStatus> statuses = <ManagedStatus>[];
+      for (final Map<String, dynamic> row in rows) {
+        final ManagedStatus status = await _toManagedStatus(row);
+        if (status.expiresAt.isAfter(DateTime.now())) {
+          statuses.add(status);
+        }
+      }
+      if (statuses.isEmpty) return <ManagedStatusGroup>[];
+      return <ManagedStatusGroup>[
+        ManagedStatusGroup(
+          managedAccountId: managedAccountId,
+          statuses: statuses,
+        ),
+      ];
+    });
+  }
+
+  @override
+  Future<String> postStatus({
+    required String managedAccountId,
+    required ManagedStatusType type,
+    String text = '',
+    String? statusId,
+    String? mediaUrl,
+    String? thumbnailUrl,
+    int? durationMs,
+    double? width,
+    double? height,
+    String? mimeType,
+  }) async {
+    final String id = statusId ?? 'ms_${DateTime.now().microsecondsSinceEpoch}';
+    await _client.rpc('post_managed_status', params: <String, dynamic>{
+      'p_status': <String, dynamic>{
+        'id': id,
+        'managed_account_id': managedAccountId,
+        'type': _statusTypeName(type),
+        'text': text,
+        'media_url': mediaUrl,
+        'thumbnail_url': thumbnailUrl,
+        'duration_ms': durationMs,
+        'width': width,
+        'height': height,
+        'mime_type': mimeType,
+      },
+    });
+    return id;
+  }
+
+  @override
+  Future<MediaUploadTask> uploadStatusMedia({
+    required String managedAccountId,
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+    required String fileName,
+  }) {
+    return Future.value(_ManagedMediaUploadTask(
+      storage: _client.storage.from('managed_status_media'),
+      path: '$managedAccountId/$statusId',
+      bytes: bytes,
+      contentType: contentType,
+      fileName: fileName,
+    ));
+  }
+
+  @override
+  Future<MediaUploadTask> uploadStatusThumbnail({
+    required String managedAccountId,
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+  }) {
+    return Future.value(_ManagedMediaUploadTask(
+      storage: _client.storage.from('managed_status_media'),
+      path: '$managedAccountId/${statusId}_thumb',
+      bytes: bytes,
+      contentType: contentType,
+      fileName: '',
+    ));
+  }
+
+  @override
+  Future<void> markStatusViewed(String statusId) async {
+    await _client.rpc('mark_managed_status_viewed',
+        params: <String, dynamic>{'p_status_id': statusId});
+  }
+
+  @override
+  Future<void> deleteStatus(String statusId) async {
+    await _client.rpc('delete_managed_status',
+        params: <String, dynamic>{'p_status_id': statusId});
+  }
+
+  @override
+  Future<List<ManagedStatusViewer>> fetchStatusViewers(String statusId) async {
+    final List<Map<String, dynamic>> rows = await _client
+        .from('managed_account_status_views')
+        .select('viewer_uid, viewed_at')
+        .eq('status_id', statusId)
+        .order('viewed_at', ascending: false);
+    final List<ManagedStatusViewer> viewers = <ManagedStatusViewer>[];
+    for (final Map<String, dynamic> row in rows) {
+      final String viewerUid = (row['viewer_uid'] as String?) ?? '';
+      final UserProfile? profile = viewerUid.isEmpty
+          ? null
+          : await _fetchPeerProfile(viewerUid);
+      viewers.add(ManagedStatusViewer(
+        profile: profile ??
+            UserProfile(uid: viewerUid, username: '', displayName: ''),
+        viewedAt: _toDate(row['viewed_at']) ?? DateTime.now(),
+      ));
+    }
+    return viewers;
+  }
+
   Future<UserProfile?> _fetchPeerProfile(String uid) async {
     final List<Map<String, dynamic>> rows = await _client
         .from('profiles')
@@ -341,6 +606,74 @@ class SupabaseManagedChatRepository implements ManagedChatRepository {
         'video' => ManagedMessageType.video,
         'voice' => ManagedMessageType.voice,
         _ => ManagedMessageType.text,
+      };
+
+  ManagedCall _toCall(Map<String, dynamic> data) {
+    return ManagedCall(
+      id: (data['id'] as String?) ?? '',
+      managedAccountId: (data['managed_account_id'] as String?) ?? '',
+      conversationId: (data['conversation_id'] as String?) ?? '',
+      peerUid: (data['peer_uid'] as String?) ?? '',
+      type: (data['type'] as String?) == 'video'
+          ? ManagedCallType.video
+          : ManagedCallType.audio,
+      status: _toCallStatus((data['status'] as String?) ?? 'ringing'),
+      createdAt: _toDate(data['created_at']) ?? DateTime.now(),
+      answeredAt: _toDate(data['answered_at']),
+      endedAt: _toDate(data['ended_at']),
+      endedBy: _nullIfEmpty(data['ended_by'] as String?),
+    );
+  }
+
+  ManagedCallStatus _toCallStatus(String value) => switch (value) {
+        'active' => ManagedCallStatus.active,
+        'ended' => ManagedCallStatus.ended,
+        'missed' => ManagedCallStatus.missed,
+        'declined' => ManagedCallStatus.declined,
+        _ => ManagedCallStatus.ringing,
+      };
+
+  Future<ManagedStatus> _toManagedStatus(Map<String, dynamic> data) async {
+    final int createdAtMs = (data['created_at_ms'] as num?)?.toInt() ?? 0;
+    final String? media = _nullIfEmpty(data['media_url'] as String?);
+    final String? thumb = _nullIfEmpty(data['thumbnail_url'] as String?);
+    return ManagedStatus(
+      id: (data['id'] as String?) ?? '',
+      managedAccountId: (data['managed_account_id'] as String?) ?? '',
+      type: _toStatusType((data['type'] as String?) ?? 'text'),
+      text: (data['text'] as String?) ?? '',
+      mediaUrl: await _resolveStatusMediaUrl(media),
+      thumbnailUrl: await _resolveStatusMediaUrl(thumb),
+      durationMs: (data['duration_ms'] as num?)?.toInt(),
+      width: (data['width'] as num?)?.toDouble(),
+      height: (data['height'] as num?)?.toDouble(),
+      mimeType: _nullIfEmpty(data['mime_type'] as String?),
+      createdAt: _toDate(data['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(createdAtMs),
+      expiresAt: _toDate(data['expires_at']) ?? DateTime.now(),
+    );
+  }
+
+  Future<String?> _resolveStatusMediaUrl(String? path) async {
+    if (path == null || path.isEmpty) return null;
+    if (path.contains('http')) return path;
+    try {
+      return _client.storage.from('managed_status_media').getPublicUrl(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  ManagedStatusType _toStatusType(String value) => switch (value) {
+        'image' => ManagedStatusType.image,
+        'video' => ManagedStatusType.video,
+        _ => ManagedStatusType.text,
+      };
+
+  String _statusTypeName(ManagedStatusType type) => switch (type) {
+        ManagedStatusType.image => 'image',
+        ManagedStatusType.video => 'video',
+        ManagedStatusType.text => 'text',
       };
 
   String _typeName(ManagedMessageType type) => switch (type) {

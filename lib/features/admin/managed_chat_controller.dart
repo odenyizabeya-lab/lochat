@@ -3,16 +3,21 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../features/chat/data/chat_repository.dart';
+import '../../features/chat/data/chat_ai_service.dart';
+import '../../features/chat/data/supabase_chat_ai_service.dart';
 import '../../features/chat/media/chat_media_picker.dart';
 import '../../features/chat/media/device_chat_media_picker.dart';
 import '../../features/chat/media/device_voice_recorder.dart';
-import '../../features/chat/media/media_playback.dart';
+import '../../features/chat/media/video_playback.dart';
 import '../../features/chat/media/voice_recorder.dart';
 import '../../features/chat/models/chat_message.dart';
+import '../../../features/profile/models/user_profile.dart';
 import './managed_account_controller.dart';
 import './models/managed_account.dart';
+import './models/managed_call.dart';
 import './models/managed_conversation.dart';
 import './models/managed_message.dart';
+import './models/managed_status.dart';
 import './data/managed_chat_repository.dart';
 
 class ManagedChatController extends ChangeNotifier {
@@ -21,8 +26,13 @@ class ManagedChatController extends ChangeNotifier {
     required this.accountController,
     ChatMediaPicker? mediaPicker,
     VoiceRecorder? voiceRecorder,
+    ChatAiService? chatAi,
+    VideoPlaybackControllerFactory? videoPlaybackFactory,
   })  : _mediaPicker = mediaPicker ?? DeviceChatMediaPicker(),
-        _voiceRecorder = voiceRecorder ?? DeviceVoiceRecorder() {
+        _voiceRecorder = voiceRecorder ?? DeviceVoiceRecorder(),
+        _chatAi = chatAi,
+        _videoPlaybackFactory =
+            videoPlaybackFactory ?? defaultDeviceVideoPlaybackController {
     accountController.addListener(_onAccountChanged);
     _onAccountChanged();
   }
@@ -31,6 +41,10 @@ class ManagedChatController extends ChangeNotifier {
   final ManagedAccountController accountController;
   final ChatMediaPicker _mediaPicker;
   final VoiceRecorder _voiceRecorder;
+  final ChatAiService? _chatAi;
+  final VideoPlaybackControllerFactory _videoPlaybackFactory;
+
+  ChatAiService? _lazyChatAi;
 
   StreamSubscription<List<ManagedConversation>>? _conversationsSub;
   Stream<List<ManagedConversation>>? _conversationsStream;
@@ -45,6 +59,15 @@ class ManagedChatController extends ChangeNotifier {
 
   ChatMediaPicker get mediaPicker => _mediaPicker;
   VoiceRecorder get voiceRecorder => _voiceRecorder;
+  VideoPlaybackControllerFactory get videoPlaybackFactory =>
+      _videoPlaybackFactory;
+
+  /// AI helpers for in-chat translation (text messages).
+  ///
+  /// Lazily created so tests that inject fakes never touch the Supabase
+  /// client; tests may inject a [ChatAiService] fake instead.
+  ChatAiService get chatAi =>
+      _chatAi ?? (_lazyChatAi ??= SupabaseChatAiService());
 
   void _onAccountChanged() {
     final String? newId = accountController.selectedAccount?.id;
@@ -123,6 +146,11 @@ class ManagedChatController extends ChangeNotifier {
       conversationId,
       () => chatRepository.watchMessages(conversationId),
     );
+  }
+
+  /// Live presence (online flag + last seen) for a peer in a managed chat.
+  Stream<UserProfile?> watchPeerPresence(String peerUid) {
+    return chatRepository.watchPeerPresence(peerUid);
   }
 
   Future<List<ManagedMessage>> fetchMessagesBefore(
@@ -271,13 +299,155 @@ class ManagedChatController extends ChangeNotifier {
     return chatRepository.setTyping(conversationId);
   }
 
+  // ----- Managed calls -----
+
+  Future<ManagedCall> startCall({
+    required String conversationId,
+    required String peerUid,
+    required ManagedCallType type,
+  }) {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) {
+      throw StateError('No managed account selected.');
+    }
+    return chatRepository.startCall(
+      managedAccountId: accountId,
+      conversationId: conversationId,
+      peerUid: peerUid,
+      type: type,
+    );
+  }
+
+  Stream<ManagedCall> watchCall(String callId) {
+    return chatRepository.watchCall(callId);
+  }
+
+  Future<ManagedCall?> fetchCall(String callId) {
+    return chatRepository.fetchCall(callId);
+  }
+
+  Future<void> endCall({
+    required String callId,
+    required String byUid,
+  }) {
+    return chatRepository.endCall(callId: callId, byUid: byUid);
+  }
+
+  Future<void> answerCall(String callId) {
+    return chatRepository.answerCall(callId);
+  }
+
+  Future<void> markMissed(String callId) {
+    return chatRepository.markMissed(callId);
+  }
+
+  Future<void> declineCall(String callId) {
+    return chatRepository.declineCall(callId);
+  }
+
+  Future<List<ManagedCall>> fetchCallHistory() {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) return Future<List<ManagedCall>>.value(<ManagedCall>[]);
+    return chatRepository.fetchCallHistory(accountId);
+  }
+
+  Stream<void> watchCallChanges() {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) return Stream<void>.empty();
+    return chatRepository.watchCallChanges(accountId);
+  }
+
+  // ----- Managed status -----
+
+  Stream<List<ManagedStatusGroup>> watchStatuses() {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) {
+      return Stream<List<ManagedStatusGroup>>.empty();
+    }
+    return chatRepository.watchStatuses(accountId);
+  }
+
+  Future<String> postStatus({
+    required ManagedStatusType type,
+    String text = '',
+    String? statusId,
+    String? mediaUrl,
+    String? thumbnailUrl,
+    int? durationMs,
+    double? width,
+    double? height,
+    String? mimeType,
+  }) {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) {
+      throw StateError('No managed account selected.');
+    }
+    return chatRepository.postStatus(
+      managedAccountId: accountId,
+      type: type,
+      text: text,
+      statusId: statusId,
+      mediaUrl: mediaUrl,
+      thumbnailUrl: thumbnailUrl,
+      durationMs: durationMs,
+      width: width,
+      height: height,
+      mimeType: mimeType,
+    );
+  }
+
+  Future<MediaUploadTask> uploadStatusMedia({
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+    required String fileName,
+  }) {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) {
+      throw StateError('No managed account selected.');
+    }
+    return chatRepository.uploadStatusMedia(
+      managedAccountId: accountId,
+      statusId: statusId,
+      bytes: bytes,
+      contentType: contentType,
+      fileName: fileName,
+    );
+  }
+
+  Future<MediaUploadTask> uploadStatusThumbnail({
+    required String statusId,
+    required Uint8List bytes,
+    required String contentType,
+  }) {
+    final String? accountId = _managedAccountId;
+    if (accountId == null) {
+      throw StateError('No managed account selected.');
+    }
+    return chatRepository.uploadStatusThumbnail(
+      managedAccountId: accountId,
+      statusId: statusId,
+      bytes: bytes,
+      contentType: contentType,
+    );
+  }
+
+  Future<void> markStatusViewed(String statusId) {
+    return chatRepository.markStatusViewed(statusId);
+  }
+
+  Future<void> deleteStatus(String statusId) {
+    return chatRepository.deleteStatus(statusId);
+  }
+
+  Future<List<ManagedStatusViewer>> fetchStatusViewers(String statusId) {
+    return chatRepository.fetchStatusViewers(statusId);
+  }
+
   @override
   void dispose() {
     accountController.removeListener(_onAccountChanged);
     _conversationsSub?.cancel();
-    for (final Stream<List<ManagedMessage>> stream in _messageStreams.values) {
-      // ignore: cancel_subscriptions
-    }
     super.dispose();
   }
 

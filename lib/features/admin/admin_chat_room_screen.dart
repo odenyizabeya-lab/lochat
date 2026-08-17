@@ -5,12 +5,17 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/time_utils.dart';
+import '../../features/profile/models/user_profile.dart';
+import './admin_managed_call_history_screen.dart';
+import './admin_managed_updates_screen.dart';
 import './managed_account_controller.dart';
 import './managed_account_scope.dart';
 import './managed_chat_controller.dart';
 import './managed_chat_scope.dart';
 import './models/managed_account.dart';
 import './models/managed_conversation.dart';
+import './models/managed_message.dart';
 import './data/supabase_managed_chat_repository.dart';
 
 /// The admin dashboard's chat room.
@@ -18,8 +23,37 @@ import './data/supabase_managed_chat_repository.dart';
 /// Shows a managed account selector and the conversations list for the
 /// currently selected managed account. The admin can create up to 10 managed
 /// accounts and switch between them.
-class AdminChatRoomScreen extends StatelessWidget {
+class AdminChatRoomScreen extends StatefulWidget {
   const AdminChatRoomScreen({super.key});
+
+  @override
+  State<AdminChatRoomScreen> createState() => _AdminChatRoomScreenState();
+}
+
+class _AdminChatRoomScreenState extends State<AdminChatRoomScreen> {
+  ManagedChatController? _chatController;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ManagedAccountController accountController =
+        ManagedAccountScope.of(context);
+    final ManagedChatController? current = _chatController;
+    if (current != null && !identical(current.accountController, accountController)) {
+      current.dispose();
+      _chatController = null;
+    }
+    _chatController ??= ManagedChatController(
+      chatRepository: SupabaseManagedChatRepository(),
+      accountController: accountController,
+    );
+  }
+
+  @override
+  void dispose() {
+    _chatController?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,10 +76,7 @@ class AdminChatRoomScreen extends StatelessWidget {
     }
 
     return ManagedChatScope(
-      controller: ManagedChatController(
-        chatRepository: SupabaseManagedChatRepository(),
-        accountController: accountController,
-      ),
+      controller: _chatController!,
       child: const _ManagedChatsList(),
     );
   }
@@ -196,8 +227,34 @@ class _AccountSwitcherNoSelection extends StatelessWidget {
   }
 }
 
-class _ManagedChatsList extends StatelessWidget {
+class _ManagedChatsList extends StatefulWidget {
   const _ManagedChatsList();
+
+  @override
+  State<_ManagedChatsList> createState() => _ManagedChatsListState();
+}
+
+class _ManagedChatsListState extends State<_ManagedChatsList>
+    with SingleTickerProviderStateMixin {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  late final TabController _tabController =
+      TabController(length: 3, vsync: this);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -250,19 +307,50 @@ class _ManagedChatsList extends StatelessWidget {
             ],
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _newChat(context),
-        icon: const Icon(Icons.edit_rounded),
-        label: const Text('New chat'),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Expanded(child: _buildConversations(context, chat)),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.live,
+          labelColor: AppColors.live,
+          unselectedLabelColor: Colors.white70,
+          tabs: const <Widget>[
+            Tab(text: 'Chats'),
+            Tab(text: 'Updates'),
+            Tab(text: 'Calls'),
           ],
         ),
       ),
+      body: TabBarView(
+        controller: _tabController,
+        children: <Widget>[
+          SafeArea(
+            child: Column(
+              children: <Widget>[
+                _ChatListSearchField(
+                  controller: _searchController,
+                  onChanged: (String value) => setState(
+                      () => _searchQuery = value.trim().toLowerCase()),
+                ),
+                Expanded(child: _buildConversations(context, chat)),
+              ],
+            ),
+          ),
+          AdminManagedUpdatesScreen(
+            managedAccountId: selected?.id ?? '',
+            embedded: true,
+          ),
+          AdminManagedCallHistoryScreen(
+            managedAccountId: selected?.id ?? '',
+            embedded: true,
+          ),
+        ],
+      ),
+      floatingActionButton: _tabController.index == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => _newChat(context),
+              icon: const Icon(Icons.edit_rounded),
+              label: const Text('New chat'),
+            )
+          : null,
     );
   }
 
@@ -398,123 +486,34 @@ class _ManagedChatsList extends StatelessWidget {
         }
         final List<ManagedConversation> conversations =
             snapshot.data ?? const <ManagedConversation>[];
-        if (conversations.isEmpty) {
-          return _buildEmpty(context);
+        final List<ManagedConversation> filtered = _searchQuery.isEmpty
+            ? conversations
+            : conversations
+                .where((ManagedConversation c) =>
+                    c.peerDisplayName.toLowerCase().contains(_searchQuery) ||
+                    c.peerUsername.toLowerCase().contains(_searchQuery) ||
+                    (c.lastMessageText ?? '')
+                        .toLowerCase()
+                        .contains(_searchQuery))
+                .toList();
+        if (filtered.isEmpty) {
+          if (conversations.isEmpty) return _buildEmpty(context);
+          return Center(
+            child: Text(
+              'No matches for "${_searchController.text.trim()}".',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          );
         }
         return ListView.separated(
           padding: const EdgeInsets.only(bottom: 88),
-          itemCount: conversations.length,
+          itemCount: filtered.length,
           separatorBuilder: (_, __) => const Divider(height: 1, indent: 68),
           itemBuilder: (BuildContext context, int index) =>
-              _buildConversationTile(context, chat, conversations[index]),
+              _ManagedChatTile(chat: chat, conversation: filtered[index]),
         );
       },
     );
-  }
-
-  Widget _buildConversationTile(
-      BuildContext context, ManagedChatController chat,
-      ManagedConversation conversation) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final bool unread = conversation.unreadCount > 0;
-
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-      leading: CircleAvatar(
-        radius: 26,
-        backgroundImage: conversation.peerPhotoUrl != null
-            ? NetworkImage(conversation.peerPhotoUrl!)
-            : null,
-        backgroundColor: scheme.primaryContainer,
-        foregroundColor: scheme.onPrimaryContainer,
-        child: conversation.peerPhotoUrl == null
-            ? Text(
-                conversation.peerDisplayName.isNotEmpty
-                    ? conversation.peerDisplayName[0].toUpperCase()
-                    : '?',
-                style: theme.textTheme.titleMedium,
-              )
-            : null,
-      ),
-      title: Text(
-        conversation.peerDisplayName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          fontWeight: unread ? FontWeight.w700 : FontWeight.w600,
-        ),
-      ),
-      subtitle: _buildPreview(theme, scheme, conversation),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: <Widget>[
-          Text(
-            conversation.lastMessageAt != null
-                ? _formatTime(conversation.lastMessageAt!)
-                : '',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: unread ? AppColors.live : scheme.onSurfaceVariant,
-              fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-          if (unread) ...<Widget>[
-            const SizedBox(height: 5),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.live,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              constraints: const BoxConstraints(minWidth: 22),
-              child: Text(
-                '${conversation.unreadCount}',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: const Color(0xFF06332B),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-      onTap: () {
-        context.push('/settings/admin/chat', extra: <String, dynamic>{
-          'conversationId': conversation.id,
-          'managedAccountId': conversation.managedAccountId,
-        });
-      },
-    );
-  }
-
-  Widget _buildPreview(
-      ThemeData theme, ColorScheme scheme, ManagedConversation conversation) {
-    final String text = conversation.lastMessageText ?? '';
-    if (text.isEmpty) return const SizedBox.shrink();
-    return Text(
-      text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        color: scheme.onSurfaceVariant,
-      ),
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    final DateTime now = DateTime.now();
-    final DateTime today = DateTime(now.year, now.month, now.day);
-    final DateTime date = DateTime(time.year, time.month, time.day);
-    final Duration diff = now.difference(time);
-    if (diff.inDays == 0 && date == today) {
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    }
-    if (diff.inDays < 7) {
-      return '${time.day}/${time.month}';
-    }
-    return '${time.day}/${time.month}/${time.year}';
   }
 
   Widget _buildEmpty(BuildContext context) {
@@ -607,7 +606,7 @@ class _PickContactDialogState extends State<_PickContactDialog> {
       final client = Supabase.instance.client;
       final List<Map<String, dynamic>> profiles = await client
           .from('profiles')
-          .select('uid, username, display_name, photo_url')
+          .select('uid, username, display_name, photo_url, lotext_id')
           .order('display_name');
       if (mounted) {
         setState(() {
@@ -637,16 +636,17 @@ class _PickContactDialogState extends State<_PickContactDialog> {
             TextField(
               controller: _search,
               decoration: const InputDecoration(
-                hintText: 'Search contacts...',
+                hintText: 'Search by name, @username or ID...',
                 prefixIcon: Icon(Icons.search_rounded),
               ),
               onChanged: (String value) {
-                final String q = value.toLowerCase();
+                final String q = value.trim().toLowerCase();
                 setState(() {
                   _results = _results.where((Map<String, dynamic> p) {
                     final String name = (p['display_name'] as String? ?? '').toLowerCase();
                     final String user = (p['username'] as String? ?? '').toLowerCase();
-                    return name.contains(q) || user.contains(q);
+                    final String id = (p['lotext_id'] as String? ?? '').toLowerCase();
+                    return name.contains(q) || user.contains(q) || id.contains(q);
                   }).toList();
                 });
               },
@@ -672,12 +672,15 @@ class _PickContactDialogState extends State<_PickContactDialog> {
                     final String name = p['display_name'] as String? ?? '';
                     final String user = p['username'] as String? ?? '';
                     final String uid = p['uid'] as String? ?? '';
+                    final String id = p['lotext_id'] as String? ?? '';
                     return ListTile(
                       leading: CircleAvatar(
                         child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
                       ),
                       title: Text(name),
-                      subtitle: Text('@$user'),
+                      subtitle: Text(
+                        id.isNotEmpty ? '@$user  ·  $id' : '@$user',
+                      ),
                       onTap: () => Navigator.of(context).pop(uid),
                     );
                   },
@@ -692,6 +695,293 @@ class _PickContactDialogState extends State<_PickContactDialog> {
           child: const Text('Cancel'),
         ),
       ],
+    );
+  }
+}
+
+/// Rounded search field under the app bar of the admin chat room list.
+class _ChatListSearchField extends StatelessWidget {
+  const _ChatListSearchField({
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool isDark = theme.brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Search',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Clear search',
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () {
+                    controller.clear();
+                    onChanged('');
+                  },
+                ),
+          filled: true,
+          fillColor: isDark
+              ? const Color(0xFF232730)
+              : scheme.surfaceContainerHighest,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A conversation tile that mirrors the user chats list: live presence ring,
+/// "typing..." indicator, and a type-aware preview with a "You:" prefix.
+class _ManagedChatTile extends StatefulWidget {
+  const _ManagedChatTile({
+    required this.chat,
+    required this.conversation,
+  });
+
+  final ManagedChatController chat;
+  final ManagedConversation conversation;
+
+  @override
+  State<_ManagedChatTile> createState() => _ManagedChatTileState();
+}
+
+class _ManagedChatTileState extends State<_ManagedChatTile> {
+  StreamSubscription<UserProfile?>? _presenceSub;
+  UserProfile? _peer;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribePresence();
+  }
+
+  @override
+  void didUpdateWidget(_ManagedChatTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversation.peerUid != widget.conversation.peerUid) {
+      _subscribePresence();
+    }
+  }
+
+  void _subscribePresence() {
+    _presenceSub?.cancel();
+    final String peerUid = widget.conversation.peerUid;
+    if (peerUid.isEmpty) return;
+    _presenceSub = widget.chat.watchPeerPresence(peerUid).listen((UserProfile? profile) {
+      if (!mounted) return;
+      setState(() => _peer = profile);
+    });
+  }
+
+  @override
+  void dispose() {
+    _presenceSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final ManagedConversation conversation = widget.conversation;
+    final bool unread = conversation.unreadCount > 0;
+    final String? managedAccountId = widget.chat.managedAccountId;
+    final bool peerTyping = _isPeerTyping(conversation, managedAccountId);
+    final bool fromMe = managedAccountId != null &&
+        (conversation.lastSenderUid ?? '').isNotEmpty &&
+        conversation.lastSenderUid == managedAccountId;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      leading: _PresenceAvatar(
+        name: conversation.peerDisplayName,
+        photoURL: conversation.peerPhotoUrl,
+        online: _peer?.isOnline ?? false,
+      ),
+      title: Text(
+        conversation.peerDisplayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyLarge?.copyWith(
+          fontWeight: unread ? FontWeight.w700 : FontWeight.w600,
+        ),
+      ),
+      subtitle: _buildPreview(theme, scheme, peerTyping, fromMe, unread),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: <Widget>[
+          Text(
+            formatChatTime(conversation.lastMessageAt),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: unread ? AppColors.live : scheme.onSurfaceVariant,
+              fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+          if (unread) ...<Widget>[
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.live,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              constraints: const BoxConstraints(minWidth: 22),
+              child: Text(
+                '${conversation.unreadCount}',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: const Color(0xFF06332B),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      onTap: () {
+        context.push('/settings/admin/chat', extra: <String, dynamic>{
+          'conversationId': conversation.id,
+          'managedAccountId': conversation.managedAccountId,
+        });
+      },
+    );
+  }
+
+  bool _isPeerTyping(
+      ManagedConversation conversation, String? viewerUid) {
+    final String? typingUid = conversation.typingUid;
+    final DateTime? typingUntil = conversation.typingUntil;
+    if (typingUid == null ||
+        typingUntil == null ||
+        typingUid == viewerUid) {
+      return false;
+    }
+    return typingUntil.isAfter(DateTime.now());
+  }
+
+  Widget _buildPreview(
+    ThemeData theme,
+    ColorScheme scheme,
+    bool peerTyping,
+    bool fromMe,
+    bool unread,
+  ) {
+    final TextStyle baseStyle = theme.textTheme.bodyMedium!.copyWith(
+      color: peerTyping
+          ? AppColors.live
+          : (unread ? scheme.onSurface : scheme.onSurfaceVariant),
+      fontWeight: peerTyping
+          ? FontWeight.w600
+          : (unread ? FontWeight.w600 : FontWeight.w400),
+      fontStyle: peerTyping ? FontStyle.italic : FontStyle.normal,
+    );
+
+    if (peerTyping) {
+      return Text('typing\u2026',
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: baseStyle);
+    }
+
+    final ManagedConversation conversation = widget.conversation;
+    final (IconData icon, String text) = switch (conversation.lastMessageType) {
+      ManagedMessageType.image => (Icons.photo_rounded, 'Photo'),
+      ManagedMessageType.video => (Icons.videocam_rounded, 'Video'),
+      ManagedMessageType.voice => (
+          Icons.mic_rounded,
+          _voicePreview(conversation.lastMessageDurationMs),
+        ),
+      ManagedMessageType.text => (
+          Icons.chat_bubble_outline_rounded,
+          conversation.lastMessageText ?? '',
+        ),
+    };
+
+    if (conversation.lastMessageType == ManagedMessageType.text &&
+        (conversation.lastMessageText ?? '').isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final String prefix = fromMe ? 'You: ' : '';
+    final double? iconSize = theme.textTheme.bodyMedium?.fontSize;
+    final TextStyle iconStyle = baseStyle.copyWith(fontSize: iconSize);
+
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: iconSize, color: iconStyle.color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            prefix + text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: baseStyle,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _voicePreview(int? durationMs) {
+    if (durationMs == null || durationMs <= 0) return 'Voice message';
+    return 'Voice message (${formatDuration(Duration(milliseconds: durationMs))})';
+  }
+}
+
+/// Avatar with a live green ring when the peer is online (WhatsApp style).
+class _PresenceAvatar extends StatelessWidget {
+  const _PresenceAvatar({
+    required this.name,
+    required this.photoURL,
+    required this.online,
+  });
+
+  final String name;
+  final String? photoURL;
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Widget avatar = CircleAvatar(
+      radius: 26,
+      backgroundImage: photoURL != null ? NetworkImage(photoURL!) : null,
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      child: photoURL == null
+          ? Text(
+              name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: theme.textTheme.titleMedium,
+            )
+          : null,
+    );
+    if (!online) return avatar;
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.live, width: 2),
+      ),
+      child: avatar,
     );
   }
 }
