@@ -421,13 +421,24 @@ class FakeProfileRepository implements ProfileRepository {
 
   @override
   Future<UserProfile?> fetchUserByLotextId(String lotextId) async {
+    // Prefer the profile's own LoText ID (mirrors production: the registry
+    // must never resolve a friend to the searcher themselves).
+    for (final UserProfile profile in profiles.values) {
+      if (profile.lotextId == lotextId) return profile;
+    }
     final String? uid = lotextIds[lotextId];
     return uid == null ? null : profiles[uid];
   }
 
   @override
   Future<UserProfile?> fetchUserByUsername(String username) async {
-    final String? uid = usernames[normalize(username)];
+    final String name = normalize(username);
+    if (name.isEmpty) return null;
+    // Prefer the profile's own username (mirrors production).
+    for (final UserProfile profile in profiles.values) {
+      if (profile.username == name) return profile;
+    }
+    final String? uid = usernames[name];
     return uid == null ? null : profiles[uid];
   }
 

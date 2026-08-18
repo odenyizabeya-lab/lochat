@@ -503,6 +503,76 @@ void main() {
     expect(repo.contacts['me-uid'], isNull);
   });
 
+  testWidgets(
+      'a stale username registration pointing at you still finds the friend',
+      (WidgetTester tester) async {
+    final FakeProfileRepository repo = FakeProfileRepository()
+      ..seed(const UserProfile(
+        uid: 'me-uid',
+        username: 'me',
+        displayName: 'Me',
+        lotextId: '111111111',
+        isOnline: true,
+      ))
+      ..seed(sarah());
+    // Corrupt the registry the way production data got corrupted: the friend's
+    // username now maps to the signed-in user's uid.
+    repo.usernames['sarah'] = 'me-uid';
+    await pumpApp(
+      tester,
+      authService: FakeAuthService(
+        initialUser: const AuthUser(uid: 'me-uid', email: 'me@lotext.app'),
+      ),
+      profileRepository: repo,
+    );
+
+    await tester.tap(find.text('Add contact'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Username'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'sarah');
+    await tester.tap(find.widgetWithText(LoTextButton, 'Search'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sarah Connor'), findsOneWidget);
+    expect(find.text("That's you"), findsNothing);
+    expect(find.widgetWithText(LoTextButton, 'Add contact'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a stale LoText ID registration pointing at you still finds the friend',
+      (WidgetTester tester) async {
+    final FakeProfileRepository repo = FakeProfileRepository()
+      ..seed(const UserProfile(
+        uid: 'me-uid',
+        username: 'me',
+        displayName: 'Me',
+        lotextId: '111111111',
+        isOnline: true,
+      ))
+      ..seed(sarah());
+    // Corrupt the registry: the friend's LoText ID now maps to the signed-in
+    // user's uid.
+    repo.lotextIds['284716093'] = 'me-uid';
+    await pumpApp(
+      tester,
+      authService: FakeAuthService(
+        initialUser: const AuthUser(uid: 'me-uid', email: 'me@lotext.app'),
+      ),
+      profileRepository: repo,
+    );
+
+    await tester.tap(find.text('Add contact'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '284716093');
+    await tester.tap(find.widgetWithText(LoTextButton, 'Search'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sarah Connor'), findsOneWidget);
+    expect(find.text("That's you"), findsNothing);
+    expect(find.widgetWithText(LoTextButton, 'Add contact'), findsOneWidget);
+  });
+
   testWidgets('signing out returns to the welcome screen',
       (WidgetTester tester) async {
     final FakeAuthService auth = FakeAuthService(

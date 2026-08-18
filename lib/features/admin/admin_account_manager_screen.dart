@@ -349,10 +349,7 @@ class _AdminAccountManagerScreenState extends State<AdminAccountManagerScreen> {
                 return _AccountTile(
                   account: account,
                   isSelected: widget.controller.selectedAccount?.id == account.id,
-                  onTap: () {
-                    widget.controller.selectAccount(account);
-                    context.push(AppRoutes.adminChatRoom);
-                  },
+                  onTap: () => widget.controller.selectAccount(account),
                   onEdit: () => _editAccount(account),
                   onDelete: () => _deleteAccount(account),
                 );

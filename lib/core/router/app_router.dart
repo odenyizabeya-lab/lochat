@@ -11,6 +11,7 @@ import '../../features/auth/two_factor/two_factor_screen.dart';
 import '../../features/auth/welcome/welcome_screen.dart';
 import '../../features/ai/ai_assistant_screen.dart';
 import '../../features/admin/admin_account_manager_screen.dart';
+import '../../features/admin/admin_chat_room_screen.dart';
 import '../../features/admin/admin_managed_call_history_screen.dart';
 import '../../features/admin/admin_managed_call_screen.dart';
 import '../../features/admin/admin_managed_chat_screen.dart';
@@ -434,8 +435,24 @@ GoRouter createRouter({
       GoRoute(
         path: AppRoutes.adminChatRoom,
         name: 'admin-chat-room',
-        builder: (BuildContext context, GoRouterState state) =>
-            const ChatsScreen(title: 'Chat Room'),
+        builder: (BuildContext context, GoRouterState state) {
+          final ManagedAccountController? existing =
+              ManagedAccountScope.maybeOf(context);
+          final AuthController auth = AuthScope.of(context);
+          final String uid = ProfileScope.of(context).profile?.uid ??
+              auth.currentUser?.uid ??
+              '';
+          final ManagedAccountController controller = existing ??
+              ManagedAccountController(
+                accountRepository: SupabaseManagedAccountRepository(),
+                chatRepository: SupabaseManagedChatRepository(),
+                adminUid: uid,
+              )..load();
+          return ManagedAccountScope(
+            controller: controller,
+            child: const AdminChatRoomScreen(),
+          );
+        },
       ),
       GoRoute(
         path: AppRoutes.adminAccounts,
@@ -452,7 +469,10 @@ GoRouter createRouter({
                 chatRepository: SupabaseManagedChatRepository(),
                 adminUid: uid,
               )..load();
-          return AdminAccountManagerScreen(controller: controller);
+          return ManagedAccountScope(
+            controller: controller,
+            child: AdminAccountManagerScreen(controller: controller),
+          );
         },
       ),
       GoRoute(

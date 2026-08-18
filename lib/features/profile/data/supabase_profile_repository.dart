@@ -180,6 +180,18 @@ class SupabaseProfileRepository implements ProfileRepository {
   Future<UserProfile?> fetchUserByLotextId(String lotextId) async {
     final String id = lotextId.trim();
     if (!isValidLotextId(id)) return null;
+    // Prefer the profile's own lotext_id: it is what users see and share, and
+    // it is unique, so this lookup is exact even if the lotext_ids registry
+    // went stale. Resolving the registry instead could hand the searcher their
+    // own profile and make the app report "That's you" for a friend.
+    final List<Map<String, dynamic>> direct = await _client
+        .from('profiles')
+        .select()
+        .eq('lotext_id', id)
+        .limit(1);
+    if (direct.isNotEmpty) return _toProfile(direct.first);
+    // Fall back to the registry for accounts whose LoText ID predates the
+    // profiles column (seeded / admin-managed).
     final List<Map<String, dynamic>> rows = await _client
         .from('lotext_ids')
         .select('uid')
@@ -193,6 +205,17 @@ class SupabaseProfileRepository implements ProfileRepository {
   Future<UserProfile?> fetchUserByUsername(String username) async {
     final String name = normalize(username);
     if (name.isEmpty) return null;
+    // Prefer the profile's own username: it is what users see, and a stale
+    // usernames registration must never resolve a friend to the searcher
+    // themselves (which surfaces as the confusing "That's you" message).
+    final List<Map<String, dynamic>> direct = await _client
+        .from('profiles')
+        .select()
+        .eq('username', name)
+        .limit(1);
+    if (direct.isNotEmpty) return _toProfile(direct.first);
+    // Fall back to the registry for accounts whose username predates the
+    // profiles column (seeded / admin-managed).
     final List<Map<String, dynamic>> rows = await _client
         .from('usernames')
         .select('uid')

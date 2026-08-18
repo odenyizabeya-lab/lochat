@@ -95,6 +95,22 @@ async function loadProviderKey(
   return data.value;
 }
 
+// Whether the caller is an admin. The AI assistant's conversation features are
+// admin-only; server-side enforcement so a normal user can never reach them by
+// calling the function directly (bypassing the admin-gated UI route).
+async function callerIsAdmin(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("is_admin")
+    .eq("uid", userId)
+    .single();
+  if (error || !data) return false;
+  return data.is_admin === true;
+}
+
 // Load admin account number from app_config
 async function loadAdminAccountNumber(admin: ReturnType<typeof createClient>): Promise<string | undefined> {
   const { data, error } = await admin
@@ -678,6 +694,9 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "list": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const { data, error } = await admin
           .from("ai_conversations")
           .select("id, title, provider, created_at, updated_at")
@@ -688,6 +707,9 @@ Deno.serve(async (req) => {
       }
 
       case "create": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const provider = (String(body.provider ?? "openai") as ProviderName) in
           MODELS
           ? (String(body.provider) as ProviderName)
@@ -703,6 +725,9 @@ Deno.serve(async (req) => {
       }
 
       case "setProvider": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const conversationId = String(body.conversationId ?? "");
         const provider = (String(body.provider ?? "") as ProviderName) in MODELS
           ? (String(body.provider) as ProviderName)
@@ -719,6 +744,9 @@ Deno.serve(async (req) => {
       }
 
       case "delete": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const conversationId = String(body.conversationId ?? "");
         await db.getConversation(conversationId, user.id);
         const { error } = await admin
@@ -730,6 +758,9 @@ Deno.serve(async (req) => {
       }
 
       case "history": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const conversationId = String(body.conversationId ?? "");
         await db.getConversation(conversationId, user.id);
         const { data, error } = await admin
@@ -742,6 +773,9 @@ Deno.serve(async (req) => {
       }
 
       case "chat": {
+        if (!(await callerIsAdmin(admin, user.id))) {
+          return json({ error: "Forbidden" }, 403);
+        }
         const conversationId = String(body.conversationId ?? "");
         const content = String(body.content ?? "").trim();
         if (content === "") return json({ error: "Message is empty" }, 400);
