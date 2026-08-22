@@ -1,0 +1,275 @@
+:root {
+  --brand: #0741f7;
+  --brand-deep: #062ead;
+  --brand-soft: #5b8dff;
+  --dark: #0c0e12;
+  --surface: #15181e;
+  --text: #17181c;
+  --text-muted: #5a6069;
+  --light-bg: #f6f7fa;
+  --border: #d9dce3;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  color: var(--text);
+  background: #ffffff;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Header */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.brand-logo,
+.hero-logo {
+  border-radius: 22%;
+  display: block;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+}
+
+.brand-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.nav a {
+  margin-left: 20px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.nav a:hover {
+  color: var(--brand);
+}
+
+/* Hero */
+.hero {
+  background:
+    radial-gradient(circle at 85% 15%, rgba(91, 141, 255, 0.25), transparent 45%),
+    linear-gradient(135deg, var(--brand-deep), var(--brand));
+  color: #ffffff;
+  text-align: center;
+  padding: 88px 0 96px;
+}
+
+.hero-logo {
+  width: 112px;
+  height: 112px;
+  margin-bottom: 28px;
+  box-shadow: 0 16px 40px rgba(4, 18, 74, 0.35);
+}
+
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.75rem);
+  letter-spacing: -0.02em;
+  max-width: 720px;
+  margin: 0 auto 16px;
+}
+
+.lead {
+  max-width: 640px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.08rem;
+}
+
+.availability {
+  display: inline-block;
+  margin-top: 28px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* Features */
+.features {
+  padding: 72px 0;
+  background: var(--light-bg);
+}
+
+.features h2 {
+  text-align: center;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin-bottom: 40px;
+  letter-spacing: -0.01em;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.feature-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(7, 65, 247, 0.12);
+}
+
+.feature-card h3 {
+  color: var(--brand);
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+}
+
+.feature-card p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* Contact */
+.contact {
+  padding: 72px 0;
+  text-align: center;
+}
+
+.contact h2 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin-bottom: 12px;
+}
+
+.contact p {
+  color: var(--text-muted);
+}
+
+.contact-email {
+  margin: 18px 0;
+  font-size: 1.15rem;
+  color: var(--text) !important;
+}
+
+.contact-email a {
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contact-email a:hover {
+  text-decoration: underline;
+}
+
+/* Privacy policy page */
+.policy {
+  padding: 56px 24px 72px;
+  max-width: 800px;
+}
+
+.policy h1 {
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.policy-updated {
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 32px;
+}
+
+.policy h2 {
+  font-size: 1.2rem;
+  margin: 32px 0 10px;
+  color: var(--brand-deep);
+}
+
+.policy p,
+.policy li {
+  color: #333842;
+  margin-bottom: 10px;
+}
+
+.policy ul {
+  padding-left: 22px;
+  margin-bottom: 12px;
+}
+
+.policy a {
+  color: var(--brand);
+}
+
+.back-link {
+  margin-top: 40px;
+}
+
+.back-link a {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0;
+  background: var(--light-bg);
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.footer-inner a {
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.footer-inner a:hover {
+  text-decoration: underline;
+}
