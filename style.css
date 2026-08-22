@@ -199,6 +199,21 @@ body {
   text-decoration: underline;
 }
 
+.delete-link {
+  margin-top: 26px;
+  padding: 16px 22px;
+  display: inline-block;
+  border-radius: 12px;
+  background: var(--light-bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted) !important;
+}
+
+.delete-link a {
+  color: var(--brand);
+  font-weight: 600;
+}
+
 /* Privacy policy page */
 .policy {
   padding: 56px 24px 72px;
